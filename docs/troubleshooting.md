@@ -637,10 +637,10 @@ dmesg | tail -50
 
 ### Support Channels
 
-- 📚 [Documentation](https://github.com/HomieAiOS/homie_os/docs)
-- 🐛 [Issue Tracker](https://github.com/HomieAiOS/homie_os/issues)
-- 💬 [Community Discussions](https://github.com/HomieAiOS/homie_os/discussions)
-- 📧 [Email Support](mailto:support@homie-ai.com)
+- 📚 [Documentation](https://github.com/Homie-Ai-project/homie_os/docs)
+- 🐛 [Issue Tracker](https://github.com/Homie-Ai-project/homie_os/issues)
+- 💬 [Community Discussions](https://github.com/Homie-Ai-project/homie_os/discussions)
+- 📧 [Email Support](mailto:support@homieos.com)
 
 ### Creating Bug Reports
 

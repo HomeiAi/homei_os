@@ -33,7 +33,7 @@ Homie OS transforms your NVIDIA Jetson Nano into a production-ready embedded sys
 
 ```bash
 # Clone repository
-git clone https://github.com/HomieAiOS/homie_os.git
+git clone https://github.com/Homie-Ai-project/homie_os.git
 cd homie_os
 
 # Run automated setup
@@ -75,9 +75,9 @@ sudo ./scripts/setup-rauc-jetson.sh
 ## Support
 
 - 📚 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/HomieAiOS/homie_os/issues)
-- 💬 [Discussions](https://github.com/HomieAiOS/homie_os/discussions)
-- 📧 [Contact](mailto:support@homie-ai.com)
+- 🐛 [Issue Tracker](https://github.com/Homie-Ai-project/homie_os/issues)
+- 💬 [Discussions](https://github.com/Homie-Ai-project/homie_os/discussions)
+- 📧 [Contact](mailto:support@homieos.com)
 
 ## License
 

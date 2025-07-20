@@ -241,7 +241,7 @@ For convenience, you can use our automated setup script:
 
 ```bash
 # Clone the repository
-git clone https://github.com/HomieAiOS/homie_os.git
+git clone https://github.com/Homie-Ai-project/homie_os.git
 cd homie_os
 
 # Run automated setup (requires sudo)

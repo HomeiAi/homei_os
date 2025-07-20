@@ -4,13 +4,13 @@ We welcome contributions to Homie OS! This document provides guidelines for cont
 
 ## Code of Conduct
 
-This project adheres to a code of conduct. By participating, you are expected to uphold this code. Please report unacceptable behavior to [support@homie-ai.com](mailto:support@homie-ai.com).
+This project adheres to a code of conduct. By participating, you are expected to uphold this code. Please report unacceptable behavior to [support@homieos.com](mailto:support@homieos.com).
 
 ## How to Contribute
 
 ### Reporting Bugs
 
-1. **Check existing issues** - Search the [issue tracker](https://github.com/HomieAiOS/homie_os/issues) to see if the bug has already been reported.
+1. **Check existing issues** - Search the [issue tracker](https://github.com/Homie-Ai-project/homie_os/issues) to see if the bug has already been reported.
 
 2. **Create a detailed bug report** - Include:
    - Clear description of the problem
@@ -52,7 +52,7 @@ This project adheres to a code of conduct. By participating, you are expected to
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/HomieAiOS/homie_os.git
+   git clone https://github.com/Homie-Ai-project/homie_os.git
    cd homie_os
    ```
 
@@ -110,8 +110,8 @@ Before submitting a pull request:
 ## Getting Help
 
 - 📚 [Documentation](docs/)
-- 💬 [Discussions](https://github.com/HomieAiOS/homie_os/discussions)
-- 📧 [Email](mailto:support@homie-ai.com)
+- 💬 [Discussions](https://github.com/Homie-Ai-project/homie_os/discussions)
+- 📧 [Email](mailto:support@homieos.com)
 
 ## License
 
