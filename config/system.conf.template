@@ -1,0 +1,64 @@
+# RAUC System Configuration for Jetson Nano
+# This is the template configuration file for RAUC
+# Copy to /etc/rauc/system.conf and customize as needed
+
+[system]
+# Device compatibility string - must match bundle compatibility
+compatible=jetson-nano
+
+# Bootloader type for Jetson Nano
+bootloader=uboot
+
+# Maximum bundle download size (2GB)
+max-bundle-download-size=2147483648
+
+# Supported bundle formats
+bundle-formats=plain,verity
+
+# System variant (optional)
+# variant=production
+
+# Boot attempts before marking slot as bad
+boot-attempts-primary=3
+
+# Enable status file monitoring
+statusfile-ep-timeout=30
+
+[keyring]
+# Path to certificate bundle for signature verification
+path=/etc/rauc/keyring.pem
+
+# Use bundle signing time for certificate validation
+use-bundle-signing-time=true
+
+[slot.rootfs.0]
+# First root filesystem slot (Slot A)
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+readonly=false
+
+[slot.rootfs.1]
+# Second root filesystem slot (Slot B)
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+readonly=false
+
+# Optional: Data slot configuration (not updated by RAUC)
+[slot.data.0]
+device=/dev/mmcblk0p3
+type=ext4
+parent=rootfs.0
+readonly=false
+
+# Custom handlers (optional)
+[handlers]
+# Pre-install handler
+# pre-install=/usr/lib/rauc/handlers/pre-install
+
+# Post-install handler
+# post-install=/usr/lib/rauc/handlers/post-install
+
+# System info handler
+# system-info=/usr/lib/rauc/handlers/system-info
