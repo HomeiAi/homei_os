@@ -168,9 +168,21 @@ setup_build_environment() {
     mkdir -p "$BUILD_DIR"/{certs,rootfs,bundle,logs}
 
     # Generate Dockerfile from template with current configuration
+    DOCKERFILE_TEMPLATE="$DOCKER_DIR/Dockerfile.jetson-builder.template"
+    DOCKERFILE_OUTPUT="$DOCKER_DIR/Dockerfile.jetson-builder"
+    
     if [[ -f "$SCRIPT_DIR/generate-dockerfile.sh" ]]; then
         print_info "Generating Dockerfile from template..."
-        "$SCRIPT_DIR/generate-dockerfile.sh"
+        chmod +x "$SCRIPT_DIR/generate-dockerfile.sh"
+        if ! "$SCRIPT_DIR/generate-dockerfile.sh"; then
+            print_warning "Dockerfile generation script failed, generating inline..."
+            generate_dockerfile_inline
+        fi
+    elif [[ -f "$DOCKERFILE_TEMPLATE" ]]; then
+        print_info "Generating Dockerfile inline from template..."
+        generate_dockerfile_inline
+    else
+        print_warning "No Dockerfile template found, using existing Dockerfile"
     fi
 
     # Generate RAUC certificates if they don't exist
