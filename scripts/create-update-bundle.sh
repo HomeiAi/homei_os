@@ -171,8 +171,8 @@ fix_rauc_config() {
     mkdir -p /etc/rauc /etc/rauc/certs
     
     # Check what's wrong with the current configuration
-    local rauc_error=$(rauc info 2>&1 || true)
-    echo "RAUC error: $rauc_error"
+    local rauc_error=$(rauc status 2>&1 || true)
+    echo "RAUC status: $rauc_error"
     
     # Check if configuration file exists
     if [[ ! -f /etc/rauc/system.conf ]]; then
@@ -226,13 +226,13 @@ EOF
     fi
     
     # Test the configuration
-    if rauc info >/dev/null 2>&1; then
+    if rauc status >/dev/null 2>&1; then
         log "✓ RAUC configuration is now valid"
         return 0
     else
         warn "RAUC configuration still has issues. This may be normal in a development environment."
-        log "Current RAUC info output:"
-        rauc info 2>&1 || true
+        log "Current RAUC status output:"
+        rauc status 2>&1 || true
         return 1
     fi
 }
@@ -257,9 +257,9 @@ check_prerequisites() {
         fi
     fi
     
-    # Check RAUC configuration (only if cd /s installed)
+    # Check RAUC configuration (only if RAUC is installed)
     if command -v rauc >/dev/null 2>&1; then
-        if ! rauc info >/dev/null 2>&1; then
+        if ! rauc status >/dev/null 2>&1; then
             if [[ "$DEVELOPMENT" == "true" ]]; then
                 warn "RAUC configuration is invalid. Development mode will proceed anyway."
             else
