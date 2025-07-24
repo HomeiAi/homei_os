@@ -102,9 +102,13 @@ jobs:
           # Generate test certificates (in production, use real ones)
           openssl req -x509 -newkey rsa:4096 -keyout build/certs/rauc-key.pem -out build/certs/rauc-cert.pem -days 365 -nodes -subj "/CN=Homie OS Test"
 
+      - name: Fix script permissions
+        run: |
+          chmod +x scripts/*.sh
+          find scripts/ -name "*.sh" -exec chmod +x {} \;
+
       - name: Build Docker Image
         run: |
-          chmod +x scripts/docker-build.sh
           ./scripts/docker-build.sh --version ${{ needs.version.outputs.version }} --no-bundle
         env:
           HOMIE_VERSION: ${{ needs.version.outputs.version }}
@@ -113,7 +117,6 @@ jobs:
 
       - name: Create RAUC Bundle
         run: |
-          chmod +x scripts/create-docker-bundle.sh
           ./scripts/create-docker-bundle.sh build/rootfs ${{ needs.version.outputs.version }} build false
 
       - name: Upload Docker Image to Registry

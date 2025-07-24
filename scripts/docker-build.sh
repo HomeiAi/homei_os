@@ -161,6 +161,25 @@ check_prerequisites() {
     print_success "Prerequisites check passed"
 }
 
+generate_dockerfile_inline() {
+    # Inline Dockerfile generation as fallback
+    if [[ -f "$DOCKERFILE_TEMPLATE" ]]; then
+        print_info "Generating Dockerfile from template using inline method..."
+        sed \
+            -e "s|{{L4T_VERSION}}|${L4T_VERSION:-r36.2.0}|g" \
+            -e "s|{{L4T_BASE_IMAGE}}|${L4T_BASE_IMAGE:-nvcr.io/nvidia/l4t-base:r36.2.0}|g" \
+            -e "s|{{JETPACK_VERSION}}|${JETPACK_VERSION:-6.0}|g" \
+            -e "s|{{CUDA_VERSION}}|${CUDA_VERSION:-12.2}|g" \
+            -e "s|{{TENSORRT_VERSION}}|${TENSORRT_VERSION:-10.0}|g" \
+            -e "s|{{DEBIAN_FRONTEND}}|${DEBIAN_FRONTEND:-noninteractive}|g" \
+            "$DOCKERFILE_TEMPLATE" > "$DOCKERFILE_OUTPUT"
+        print_success "Generated Dockerfile inline: $DOCKERFILE_OUTPUT"
+    else
+        print_error "No Dockerfile template found at $DOCKERFILE_TEMPLATE"
+        return 1
+    fi
+}
+
 setup_build_environment() {
     print_info "Setting up build environment..."
 
