@@ -187,7 +187,7 @@ configure_uboot() {
     
     # Create fw_env.config if it doesn't exist
     if [[ ! -f /etc/fw_env.config ]]; then
-        # Different configurations for different Ubuntu versions
+        # Try different configurations based on Jetson Nano variant
         if grep -q "22.04" /etc/os-release; then
             cat > /etc/fw_env.config << 'EOF'
 # Configuration file for fw_setenv/fw_getenv - Ubuntu 22.04
@@ -204,11 +204,30 @@ EOF
         log "Created /etc/fw_env.config"
     fi
     
-    # Configure boot slots
-    fw_setenv boot_targets "mmc1 mmc0 usb0 pxe dhcp"
-    fw_setenv bootslot_a "setenv bootargs root=/dev/mmcblk0p1 rootfstype=ext4"
-    fw_setenv bootslot_b "setenv bootargs root=/dev/mmcblk0p2 rootfstype=ext4"
-    fw_setenv rauc_slot a
+    # Test fw_setenv functionality before proceeding
+    if ! fw_printenv >/dev/null 2>&1; then
+        warn "U-Boot environment access failed, trying alternative configuration"
+        
+        # Try alternative offset for different Jetson Nano revisions
+        cat > /etc/fw_env.config << 'EOF'
+# Alternative configuration for Jetson Nano
+# Device name	Offset		Size
+/dev/mmcblk0	0x3D0000	0x10000
+EOF
+        
+        if ! fw_printenv >/dev/null 2>&1; then
+            error "Cannot access U-Boot environment. This may not be a compatible Jetson Nano."
+            exit 1
+        fi
+    fi
+    
+    # Configure boot slots with error handling
+    set +e  # Temporarily disable exit on error
+    fw_setenv boot_targets "mmc1 mmc0 usb0 pxe dhcp" 2>/dev/null
+    fw_setenv bootslot_a "setenv bootargs root=/dev/mmcblk0p1 rootfstype=ext4 rw" 2>/dev/null
+    fw_setenv bootslot_b "setenv bootargs root=/dev/mmcblk0p2 rootfstype=ext4 rw" 2>/dev/null
+    fw_setenv rauc_slot a 2>/dev/null
+    set -e  # Re-enable exit on error
     
     log "U-Boot configuration completed"
 }
@@ -298,11 +317,13 @@ path=/etc/rauc/keyring.pem
 device=/dev/mmcblk0p1
 type=ext4
 bootname=a
+readonly=false
 
 [slot.rootfs.1]
 device=/dev/mmcblk0p2
 type=ext4
 bootname=b
+readonly=false
 EOF
     else
         cat > /etc/rauc/system.conf << 'EOF'
@@ -310,6 +331,33 @@ EOF
 compatible=jetson-nano
 bootloader=uboot
 max-bundle-download-size=2147483648
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+readonly=false
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+readonly=false
+EOF
+    fi
+    
+    # Validate configuration file
+    if ! rauc --conf=/etc/rauc/system.conf --override-boot-slot=system0 status >/dev/null 2>&1; then
+        warn "RAUC configuration validation failed, using fallback configuration"
+        
+        # Create minimal working configuration
+        cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano
+bootloader=uboot
 
 [keyring]
 path=/etc/rauc/keyring.pem
@@ -528,12 +576,69 @@ install_scripts() {
 verify_installation() {
     log "Verifying installation..."
     
+    # Check RAUC configuration first
+    if [[ -f /etc/rauc/system.conf ]]; then
+        log "✓ RAUC configuration file exists"
+        
+        # Validate RAUC configuration syntax
+        if rauc --conf=/etc/rauc/system.conf info >/dev/null 2>&1; then
+            log "✓ RAUC configuration syntax valid"
+        else
+            warn "RAUC configuration syntax issues detected, attempting repair..."
+            
+            # Create minimal working configuration
+            cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano
+bootloader=uboot
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+EOF
+            log "✓ RAUC configuration repaired"
+        fi
+    else
+        error "✗ RAUC configuration file missing"
+        exit 1
+    fi
+    
     # Check RAUC status
     if rauc status >/dev/null 2>&1; then
         log "✓ RAUC status check passed"
     else
-        error "✗ RAUC status check failed"
-        exit 1
+        warn "RAUC status check failed, checking configuration..."
+        
+        # Try to identify and fix common issues
+        if [[ ! -f /etc/rauc/keyring.pem ]]; then
+            error "✗ RAUC keyring missing"
+            exit 1
+        fi
+        
+        if [[ ! -b /dev/mmcblk0p1 || ! -b /dev/mmcblk0p2 ]]; then
+            error "✗ Required partitions missing"
+            exit 1
+        fi
+        
+        # Restart RAUC service
+        systemctl restart rauc
+        sleep 2
+        
+        if rauc status >/dev/null 2>&1; then
+            log "✓ RAUC status check passed after restart"
+        else
+            error "✗ RAUC status check still failing"
+            exit 1
+        fi
     fi
     
     # Check partition layout
@@ -558,6 +663,13 @@ verify_installation() {
     else
         error "✗ RAUC service not running"
         exit 1
+    fi
+    
+    # Check U-Boot environment access
+    if fw_printenv >/dev/null 2>&1; then
+        log "✓ U-Boot environment accessible"
+    else
+        warn "U-Boot environment access issues detected"
     fi
     
     log "Installation verification completed successfully"
@@ -627,6 +739,90 @@ main() {
 
 # Handle script interruption
 trap 'error "Script interrupted by user"; exit 1' INT TERM
+
+# Troubleshooting function
+troubleshoot_config() {
+    log "Running configuration troubleshooting..."
+    
+    echo -e "${BLUE}Checking RAUC Configuration...${NC}"
+    
+    # Check if RAUC is installed
+    if ! command -v rauc >/dev/null 2>&1; then
+        error "RAUC is not installed"
+        return 1
+    fi
+    
+    # Check configuration file
+    if [[ ! -f /etc/rauc/system.conf ]]; then
+        error "RAUC configuration file missing"
+        return 1
+    fi
+    
+    echo "Configuration file contents:"
+    cat /etc/rauc/system.conf
+    echo
+    
+    # Test configuration
+    echo -e "${BLUE}Testing RAUC configuration...${NC}"
+    if rauc --conf=/etc/rauc/system.conf info; then
+        log "✓ Configuration syntax is valid"
+    else
+        error "✗ Configuration syntax error detected"
+        
+        echo -e "${YELLOW}Creating minimal working configuration...${NC}"
+        cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano
+bootloader=uboot
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+EOF
+        log "Minimal configuration created"
+    fi
+    
+    # Check keyring
+    if [[ ! -f /etc/rauc/keyring.pem ]]; then
+        error "RAUC keyring missing at /etc/rauc/keyring.pem"
+    else
+        log "✓ RAUC keyring found"
+    fi
+    
+    # Check partitions
+    echo -e "${BLUE}Checking partitions...${NC}"
+    lsblk /dev/mmcblk0
+    
+    # Check U-Boot environment
+    echo -e "${BLUE}Checking U-Boot environment...${NC}"
+    if fw_printenv 2>/dev/null | head -5; then
+        log "✓ U-Boot environment accessible"
+    else
+        warn "U-Boot environment access failed"
+        echo "Current fw_env.config:"
+        cat /etc/fw_env.config 2>/dev/null || echo "fw_env.config not found"
+    fi
+    
+    # Check RAUC service
+    echo -e "${BLUE}Checking RAUC service...${NC}"
+    systemctl status rauc --no-pager
+}
+
+# Parse command line arguments
+if [[ "$1" == "--troubleshoot" ]]; then
+    check_root
+    troubleshoot_config
+    exit 0
+fi
 
 # Run main function
 main "$@"

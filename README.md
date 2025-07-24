@@ -39,6 +39,9 @@ cd homie_os
 # Run automated setup
 sudo ./scripts/setup-rauc-jetson.sh
 
+# If you encounter configuration issues, run troubleshooting:
+sudo ./scripts/setup-rauc-jetson.sh --troubleshoot
+
 # Create your first update bundle
 ./scripts/create-update-bundle.sh
 ```
