@@ -102,6 +102,16 @@ jobs:
         with:
           platforms: linux/arm64
 
+      - name: Install RAUC
+        run: |
+          # Install RAUC for bundle creation
+          sudo apt-get update
+          sudo apt-get install -y rauc openssl
+          
+          # Verify installation
+          rauc --version
+          echo "RAUC installed successfully"
+
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
