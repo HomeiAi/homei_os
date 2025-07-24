@@ -210,7 +210,7 @@ Release v1.2.3
 ├── homie-os-1.2.3.raucb          # Signed production bundle
 ├── homie-os-1.2.3-dev.tar.gz     # Development bundle (if needed)
 ├── homie-os-1.2.3.sha256         # Checksums
-└── install-instructions.md        # Installation guide
+└── install-instructions.md       # Installation guide
 ```
 
 ## 🎯 Target System Update Workflow

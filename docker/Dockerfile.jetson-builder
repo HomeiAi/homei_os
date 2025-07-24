@@ -1,0 +1,125 @@
+# Use NVIDIA L4T base image for Jetson compatibility
+FROM nvcr.io/nvidia/l4t-base:r35.4.1
+
+# Set build arguments
+ARG VERSION=unknown
+ARG BUILD_DATE
+ARG HOMIE_BRANCH=main
+
+# Labels for metadata
+LABEL maintainer="Homie OS Team"
+LABEL version="${VERSION}"
+LABEL description="Homie OS for NVIDIA Jetson Orin Nano"
+LABEL build-date="${BUILD_DATE}"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOMIE_VERSION=${VERSION}
+ENV CUDA_VERSION=11.4
+ENV TRT_VERSION=8.5.2
+
+# Update package lists and install base packages
+RUN apt-get update && apt-get install -y \
+    # System essentials
+    systemd \
+    systemd-sysv \
+    init \
+    dbus \
+    # Network and utilities
+    network-manager \
+    openssh-server \
+    curl \
+    wget \
+    vim \
+    nano \
+    htop \
+    tree \
+    jq \
+    # Development tools
+    git \
+    build-essential \
+    python3 \
+    python3-pip \
+    python3-venv \
+    # Container runtime
+    docker.io \
+    docker-compose \
+    # NVIDIA specific
+    nvidia-jetpack-dev \
+    nvidia-container-toolkit \
+    # Security and monitoring
+    fail2ban \
+    logrotate \
+    rsyslog \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages for Homie OS
+RUN pip3 install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    docker \
+    pyyaml \
+    requests \
+    psutil \
+    prometheus-client \
+    pydantic
+
+# Create system users and directories
+RUN groupadd -r homie && useradd -r -g homie homie
+RUN mkdir -p /opt/homie/{bin,config,data,logs}
+RUN mkdir -p /data/{app,system,backups,logs}
+RUN chown -R homie:homie /opt/homie /data
+
+# Copy Homie OS components (these will be copied from build context)
+# COPY homie_orchestrator/ /opt/homie/
+# COPY config/ /opt/homie/config/
+# COPY scripts/system/ /opt/homie/scripts/
+
+# Create placeholder directories for now
+RUN mkdir -p /opt/homie/{orchestrator,config,scripts}
+
+# Copy systemd service files (placeholder)
+# COPY config/systemd/ /etc/systemd/system/
+
+# Set up Homie OS services (will be enabled when actual services exist)
+# RUN systemctl enable homie-orchestrator
+# RUN systemctl enable homie-ai-stack
+RUN systemctl enable docker
+RUN systemctl enable ssh
+
+# Configure SSH (disable root login, enable key auth)
+RUN mkdir -p /home/homie/.ssh
+RUN echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
+RUN echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+RUN echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+
+# Configure network (use NetworkManager)
+RUN systemctl enable NetworkManager
+RUN systemctl disable systemd-networkd
+
+# Set up log rotation
+# COPY config/logrotate.d/ /etc/logrotate.d/
+
+# Configure system limits
+# COPY config/limits.conf /etc/security/limits.conf
+
+# Set version information
+RUN echo "${VERSION}" > /etc/homie-version
+RUN echo "build_date=${BUILD_DATE}" >> /etc/homie-build-info
+RUN echo "base_image=nvcr.io/nvidia/l4t-base:r35.4.1" >> /etc/homie-build-info
+
+# Clean up
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    find /var/log -type f -exec truncate -s 0 {} \;
+
+# Set proper permissions
+RUN chmod +x /opt/homie/bin/* 2>/dev/null || true
+RUN chmod +x /opt/homie/scripts/* 2>/dev/null || true
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command
+CMD ["/sbin/init"]
