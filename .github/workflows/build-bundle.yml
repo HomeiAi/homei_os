@@ -120,9 +120,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and create RAUC bundle
+        env:
+          HOMIE_VERSION: ${{ needs.version.outputs.version }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           cd homie_os
           echo "Building Homie OS ARM64 image and creating RAUC bundle..."
+          
+          # Debug: Show current directory and structure
+          echo "Current working directory: $(pwd)"
+          echo "Directory structure:"
+          ls -la
+          echo "Parent directory structure:"
+          ls -la ..
           
           # Create version info
           echo "HOMIE_VERSION=${{ needs.version.outputs.version }}" > .env
@@ -134,6 +145,28 @@ jobs:
           
           # Run the build script
           ./scripts/docker-build.sh
+          
+          # Check if build completed successfully
+          if [ $? -ne 0 ]; then
+            echo "Build script failed"
+            exit 1
+          fi
+          
+          # Debug: Show what was created
+          echo "Build completed. Checking build directory:"
+          ls -la build/ || echo "Build directory not found"
+          echo "Looking for artifacts:"
+          find . -name "*.raucb" -o -name "*.ext4" -o -name "*.json" | head -10
+          
+          # Verify critical artifacts exist
+          RAUCB_COUNT=$(find build/ -name "*.raucb" 2>/dev/null | wc -l)
+          if [ "$RAUCB_COUNT" -eq 0 ]; then
+            echo "ERROR: No RAUC bundle (.raucb) files found!"
+            echo "Build directory contents:"
+            ls -la build/ || echo "Build directory doesn't exist"
+            exit 1
+          fi
+          echo "Found $RAUCB_COUNT RAUC bundle(s)"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -144,6 +177,22 @@ jobs:
             homie_os/build/*.ext4
             homie_os/build/*.json
           retention-days: 30
+          if-no-files-found: error
+
+      - name: Debug artifact search
+        if: failure()
+        run: |
+          echo "Artifact upload failed. Searching for files..."
+          echo "Current directory: $(pwd)"
+          find . -name "*.raucb" -o -name "*.ext4" -o -name "*.json" | head -20
+          echo "Directory structure:"
+          ls -la homie_os/
+          if [ -d homie_os/build ]; then
+            echo "Contents of homie_os/build:"
+            ls -la homie_os/build/
+          else
+            echo "homie_os/build directory does not exist"
+          fi
 
   publish:
     name: Publish Release
