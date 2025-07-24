@@ -16,13 +16,8 @@ source "$SCRIPT_DIR/load-config.sh" load 2>/dev/null || {
     echo "WARNING: Could not load configuration, using defaults"
 }
 
-# Default values with config file fallback
-VERSION_FILE="$PROJECT_ROOT/VERSION"
-if [[ -f "$VERSION_FILE" ]]; then
-    DEFAULT_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "$(date +%Y%m%d_%H%M%S)")
-else
-    DEFAULT_VERSION="$(date +%Y%m%d_%H%M%S)"
-fi
+# Default values with fallback to timestamp
+DEFAULT_VERSION="$(date +%Y%m%d_%H%M%S)"
 HOMIE_VERSION="${HOMIE_VERSION:-${VERSION:-$DEFAULT_VERSION}}"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 HOMIE_BRANCH="${HOMIE_BRANCH:-main}"
@@ -236,7 +231,10 @@ EOF
 clean_build_artifacts() {
     if [[ "${CLEAN_BUILD:-false}" == "true" ]]; then
         print_info "Cleaning build artifacts..."
-        rm -rf "$BUILD_DIR"/{rootfs,bundle}/*
+        # Clean contents but preserve directory structure
+        rm -rf "$BUILD_DIR"/rootfs/* "$BUILD_DIR"/bundle/* 2>/dev/null || true
+        # Ensure directories exist after cleaning
+        mkdir -p "$BUILD_DIR"/{certs,rootfs,bundle,logs}
         docker system prune -f
         print_success "Build artifacts cleaned"
     fi
@@ -321,6 +319,9 @@ create_rauc_bundle() {
     fi
 
     print_info "Creating RAUC bundle..."
+
+    # Ensure bundle directory exists
+    mkdir -p "$BUILD_DIR/bundle"
 
     # Create manifest
     cat > "$BUILD_DIR/bundle/manifest.raucm" << EOF

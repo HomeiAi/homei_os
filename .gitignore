@@ -4,6 +4,9 @@ build/
 # Docker build cache
 .docker/
 
+# Docker installation script (download fresh when needed)
+get-docker.sh
+
 # Temporary files
 *.tmp
 *.log
