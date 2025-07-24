@@ -212,10 +212,30 @@ setup_build_environment() {
     # Generate RAUC certificates if they don't exist
     if [[ ! -f "$BUILD_DIR/certs/rauc-key.pem" || ! -f "$BUILD_DIR/certs/rauc-cert.pem" ]]; then
         print_info "Generating RAUC certificates..."
-        openssl req -x509 -newkey rsa:4096 -keyout "$BUILD_DIR/certs/rauc-key.pem" \
+        
+        # Ensure certs directory exists
+        mkdir -p "$BUILD_DIR/certs"
+        
+        # Generate certificates
+        if ! openssl req -x509 -newkey rsa:4096 -keyout "$BUILD_DIR/certs/rauc-key.pem" \
             -out "$BUILD_DIR/certs/rauc-cert.pem" -days 365 -nodes \
-            -subj "/C=US/ST=CA/L=San Francisco/O=Homie/CN=Homie OS Update"
+            -subj "/C=US/ST=CA/L=San Francisco/O=Homie/CN=Homie OS Update"; then
+            print_error "Failed to generate RAUC certificates"
+            exit 1
+        fi
+        
+        # Verify certificates were created
+        if [[ ! -f "$BUILD_DIR/certs/rauc-key.pem" || ! -f "$BUILD_DIR/certs/rauc-cert.pem" ]]; then
+            print_error "Certificate generation failed - files not found"
+            exit 1
+        fi
+        
         print_success "RAUC certificates generated"
+        print_info "Certificate files:"
+        ls -la "$BUILD_DIR/certs/"
+    else
+        print_info "Using existing RAUC certificates"
+        ls -la "$BUILD_DIR/certs/"
     fi
 
     # Create .env file for Docker Compose
@@ -328,6 +348,10 @@ create_rauc_bundle() {
 [update]
 compatible=homie-jetson-orin-nano
 version=$HOMIE_VERSION
+description=Homie OS update bundle for Jetson Orin Nano
+
+[bundle]
+format=plain
 
 [image.rootfs]
 filename=rootfs.ext4
@@ -354,9 +378,29 @@ EOF
 
     # Create the bundle
     local bundle_name="homie-os-jetson-$HOMIE_VERSION.raucb"
+    
+    # Debug: Show current directory and certificate paths
+    print_info "Current working directory: $(pwd)"
+    print_info "BUILD_DIR: $BUILD_DIR"
+    print_info "Checking certificate files..."
+    ls -la "$BUILD_DIR/certs/" || print_error "Certs directory not found"
+    
+    # Verify certificate files exist
+    if [[ ! -f "$BUILD_DIR/certs/rauc-cert.pem" ]]; then
+        print_error "Certificate file not found: $BUILD_DIR/certs/rauc-cert.pem"
+        exit 1
+    fi
+    
+    if [[ ! -f "$BUILD_DIR/certs/rauc-key.pem" ]]; then
+        print_error "Key file not found: $BUILD_DIR/certs/rauc-key.pem"
+        exit 1
+    fi
+    
+    # Create the bundle with absolute paths
+    print_info "Creating RAUC bundle with certificates..."
     rauc bundle "$BUILD_DIR/bundle" "$BUILD_DIR/$bundle_name" \
-        --cert="$BUILD_DIR/certs/rauc-cert.pem" \
-        --key="$BUILD_DIR/certs/rauc-key.pem"
+        --cert="$(realpath "$BUILD_DIR/certs/rauc-cert.pem")" \
+        --key="$(realpath "$BUILD_DIR/certs/rauc-key.pem")"
 
     print_success "RAUC bundle created: $BUILD_DIR/$bundle_name"
 }
