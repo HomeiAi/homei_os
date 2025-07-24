@@ -43,10 +43,10 @@ check_root() {
 check_system() {
     log "Checking system compatibility..."
     
-    # Check if running on Jetson Nano
+    # Check if running on NVIDIA Jetson Orin Nano
     if ! grep -q "jetson-nano" /proc/device-tree/model 2>/dev/null; then
-        if ! grep -q "NVIDIA Jetson Nano" /proc/device-tree/model 2>/dev/null; then
-            warn "This system may not be a Jetson Nano. Continuing anyway..."
+        if ! grep -q "NVIDIA Jetson Orin Nano" /proc/device-tree/model 2>/dev/null; then
+            warn "This system may not be a NVIDIA Jetson Orin Nano. Continuing anyway..."
         fi
     fi
     
@@ -498,13 +498,12 @@ copy_system() {
 enable_rauc_service() {
     log "Enabling RAUC service..."
     
-    # Create systemd service override with version-specific configuration
-    mkdir -p /etc/systemd/system/rauc.service.d
-    
+    # Create proper systemd service file
     if grep -q "22.04" /etc/os-release; then
-        cat > /etc/systemd/system/rauc.service.d/override.conf << 'EOF'
+        cat > /etc/systemd/system/rauc.service << 'EOF'
 [Unit]
 Description=RAUC Update Service
+Documentation=man:rauc(1) https://rauc.readthedocs.io
 After=network-online.target
 Wants=network-online.target
 
@@ -522,9 +521,10 @@ TimeoutStartSec=30
 WantedBy=multi-user.target
 EOF
     else
-        cat > /etc/systemd/system/rauc.service.d/override.conf << 'EOF'
+        cat > /etc/systemd/system/rauc.service << 'EOF'
 [Unit]
 Description=RAUC Update Service
+Documentation=man:rauc(1) https://rauc.readthedocs.io
 After=network.target
 
 [Service]
@@ -878,7 +878,37 @@ EOF
     if systemctl is-active rauc >/dev/null 2>&1; then
         systemctl status rauc --no-pager
     else
-        warn "RAUC service not running - attempting to start..."
+        warn "RAUC service not running - attempting to create and start..."
+        
+        # Check if service file has proper [Install] section
+        if ! systemctl cat rauc.service 2>/dev/null | grep -q "\[Install\]"; then
+            log "Creating proper RAUC systemd service file..."
+            
+            cat > /etc/systemd/system/rauc.service << 'EOF'
+[Unit]
+Description=RAUC Update Service
+Documentation=man:rauc(1) https://rauc.readthedocs.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=dbus
+BusName=de.pengutronix.rauc
+ExecStart=/usr/local/bin/rauc service
+Environment="RAUC_LOG_LEVEL=info"
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+            systemctl daemon-reload
+            log "✓ RAUC systemd service file created"
+        fi
+        
+        # Try to enable and start
+        systemctl enable rauc 2>/dev/null || true
         systemctl restart rauc 2>/dev/null || true
         sleep 2
         systemctl status rauc --no-pager --lines=5
@@ -1080,10 +1110,50 @@ EOF
     
     # Try to start RAUC service
     log "Attempting to start RAUC service..."
-    if systemctl enable rauc && systemctl start rauc; then
+    
+    # First, create a proper systemd service file if it doesn't exist or lacks [Install] section
+    if ! systemctl cat rauc.service 2>/dev/null | grep -q "\[Install\]"; then
+        log "Creating proper RAUC systemd service file..."
+        
+        cat > /etc/systemd/system/rauc.service << 'EOF'
+[Unit]
+Description=RAUC Update Service
+Documentation=man:rauc(1) https://rauc.readthedocs.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=dbus
+BusName=de.pengutronix.rauc
+ExecStart=/usr/local/bin/rauc service
+Environment="RAUC_LOG_LEVEL=info"
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        # Reload systemd to recognize the new service file
+        systemctl daemon-reload
+        log "✓ RAUC systemd service file created"
+    fi
+    
+    # Now try to enable and start the service
+    if systemctl enable rauc 2>/dev/null && systemctl start rauc 2>/dev/null; then
         log "✓ RAUC service started successfully"
+        
+        # Verify it's actually running
+        if systemctl is-active rauc >/dev/null 2>&1; then
+            log "✓ RAUC service is active and running"
+        else
+            warn "RAUC service enabled but not active"
+        fi
     else
         warn "RAUC service may not start properly without A/B partitions"
+        echo "This is normal if A/B partitions haven't been set up yet."
+        echo "The service will start properly after full setup is complete."
     fi
     
     exit 0
