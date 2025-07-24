@@ -1,5 +1,5 @@
-# Use NVIDIA L4T base image for Jetson compatibility
-FROM nvcr.io/nvidia/l4t-base:r35.4.1
+# Use NVIDIA L4T base image for Jetson compatibility (Jetson Linux R36.2.0 / JetPack 6.0)
+FROM nvcr.io/nvidia/l4t-base:r36.2.0
 
 # Set build arguments
 ARG VERSION=unknown
@@ -15,8 +15,9 @@ LABEL build-date="${BUILD_DATE}"
 # Environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOMIE_VERSION=${VERSION}
-ENV CUDA_VERSION=11.4
-ENV TRT_VERSION=8.5.2
+ENV CUDA_VERSION=12.2
+ENV TRT_VERSION=10.0
+ENV JETPACK_VERSION=6.0
 
 # Update package lists and install base packages
 RUN apt-get update && apt-get install -y \
@@ -44,9 +45,6 @@ RUN apt-get update && apt-get install -y \
     # Container runtime
     docker.io \
     docker-compose \
-    # NVIDIA specific
-    nvidia-jetpack-dev \
-    nvidia-container-toolkit \
     # Security and monitoring
     fail2ban \
     logrotate \
@@ -106,7 +104,9 @@ RUN systemctl disable systemd-networkd
 # Set version information
 RUN echo "${VERSION}" > /etc/homie-version
 RUN echo "build_date=${BUILD_DATE}" >> /etc/homie-build-info
-RUN echo "base_image=nvcr.io/nvidia/l4t-base:r35.4.1" >> /etc/homie-build-info
+RUN echo "base_image=nvcr.io/nvidia/l4t-base:r36.2.0" >> /etc/homie-build-info
+RUN echo "jetpack_version=6.0" >> /etc/homie-build-info
+RUN echo "jetson_linux=r36.2.0" >> /etc/homie-build-info
 
 # Clean up
 RUN apt-get clean && \

@@ -12,7 +12,13 @@ DOCKER_DIR="$PROJECT_ROOT/docker"
 BUILD_DIR="$PROJECT_ROOT/build"
 
 # Default values
-HOMIE_VERSION="${HOMIE_VERSION:-$(date +%Y%m%d_%H%M%S)}"
+VERSION_FILE="$PROJECT_ROOT/VERSION"
+if [[ -f "$VERSION_FILE" ]]; then
+    DEFAULT_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "$(date +%Y%m%d_%H%M%S)")
+else
+    DEFAULT_VERSION="$(date +%Y%m%d_%H%M%S)"
+fi
+HOMIE_VERSION="${HOMIE_VERSION:-$DEFAULT_VERSION}"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 HOMIE_BRANCH="${HOMIE_BRANCH:-main}"
 PUSH_IMAGE="${PUSH_IMAGE:-false}"
@@ -322,7 +328,9 @@ generate_build_report() {
   "branch": "$HOMIE_BRANCH",
   "target": "jetson-orin-nano",
   "architecture": "arm64",
-  "base_image": "nvcr.io/nvidia/l4t-base:r35.4.1",
+  "base_image": "nvcr.io/nvidia/l4t-base:r36.2.0",
+  "jetpack_version": "6.0",
+  "jetson_linux": "r36.2.0",
   "artifacts": {
     "image": "homie-os:jetson-$HOMIE_VERSION",
     "rootfs": "rootfs.ext4",

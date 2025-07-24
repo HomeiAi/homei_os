@@ -1,0 +1,33 @@
+# Build artifacts
+build/
+
+# Docker build cache
+.docker/
+
+# Temporary files
+*.tmp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.p12
+
+# RAUC bundles
+*.raucb

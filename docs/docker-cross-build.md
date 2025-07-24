@@ -71,8 +71,8 @@ homie_os/
 Create `docker/Dockerfile.jetson-builder`:
 
 ```dockerfile
-# Use NVIDIA L4T base image for Jetson compatibility
-FROM nvcr.io/nvidia/l4t-base:r35.4.1
+# Use NVIDIA L4T base image for Jetson compatibility (Jetson Linux R36.2.0 / JetPack 6.0)
+FROM nvcr.io/nvidia/l4t-base:r36.2.0
 
 # Set build arguments
 ARG VERSION=unknown
@@ -176,7 +176,8 @@ COPY config/limits.conf /etc/security/limits.conf
 # Set version information
 RUN echo "${VERSION}" > /etc/homie-version
 RUN echo "build_date=${BUILD_DATE}" >> /etc/homie-build-info
-RUN echo "base_image=nvcr.io/nvidia/l4t-base:r35.4.1" >> /etc/homie-build-info
+RUN echo "base_image=nvcr.io/nvidia/l4t-base:r36.2.0" >> /etc/homie-build-info
+RUN echo "jetpack_version=6.0" >> /etc/homie-build-info
 
 # Clean up
 RUN apt-get clean && \
@@ -1026,7 +1027,7 @@ jobs:
           
           - Bundle signature: ${{ github.event.inputs.sign_bundle == 'true' && '✅ Signed' || '⚠️ Unsigned (development)' }}
           - Architecture: ARM64 (NVIDIA Jetson Orin Nano)
-          - Base image: NVIDIA L4T r35.4.1
+          - Base image: NVIDIA L4T r36.2.0 (JetPack 6.0)
           
           ### 📋 Requirements
           

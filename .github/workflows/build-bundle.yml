@@ -1,0 +1,254 @@
+name: Build and Publish Homie OS Bundle
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 1.0.0-alpha.1)'
+        required: false
+        default: ''
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'alpha'
+        type: choice
+        options:
+          - alpha
+          - beta
+          - rc
+          - release
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/homie-os
+
+jobs:
+  version:
+    name: Generate Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION=${VERSION#v}  # Remove 'v' prefix if present
+          else
+            # Generate alpha version based on date and commit
+            DATE=$(date +%Y%m%d)
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            RELEASE_TYPE="${{ github.event.inputs.release_type || 'alpha' }}"
+            
+            # Get latest tag for base version
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0")
+            BASE_VERSION=${LATEST_TAG#v}
+            
+            # Extract major.minor from base version
+            MAJOR_MINOR=$(echo $BASE_VERSION | cut -d. -f1-2)
+            
+            VERSION="${MAJOR_MINOR}.0-${RELEASE_TYPE}.${DATE}.${SHORT_SHA}"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+
+  build:
+    name: Build ARM64 Image and Bundle
+    runs-on: ubuntu-latest
+    needs: version
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/arm64
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install RAUC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rauc
+
+      - name: Create build certificates (for testing)
+        run: |
+          mkdir -p build/certs
+          # Generate test certificates (in production, use real ones)
+          openssl req -x509 -newkey rsa:4096 -keyout build/certs/rauc-key.pem -out build/certs/rauc-cert.pem -days 365 -nodes -subj "/CN=Homie OS Test"
+
+      - name: Build Docker Image
+        run: |
+          chmod +x scripts/docker-build.sh
+          ./scripts/docker-build.sh --version ${{ needs.version.outputs.version }} --no-bundle
+        env:
+          HOMIE_VERSION: ${{ needs.version.outputs.version }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+          HOMIE_BRANCH: ${{ github.ref_name }}
+
+      - name: Create RAUC Bundle
+        run: |
+          chmod +x scripts/create-docker-bundle.sh
+          ./scripts/create-docker-bundle.sh build/rootfs ${{ needs.version.outputs.version }} build false
+
+      - name: Upload Docker Image to Registry
+        run: |
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}"
+          docker tag homie-os:jetson-${{ needs.version.outputs.version }} $IMAGE_NAME
+          docker push $IMAGE_NAME
+          
+          # Also tag as latest for main branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            LATEST_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            docker tag $IMAGE_NAME $LATEST_IMAGE
+            docker push $LATEST_IMAGE
+          fi
+
+      - name: Generate Bundle Metadata
+        run: |
+          cat > build/bundle-metadata.json << EOF
+          {
+            "version": "${{ needs.version.outputs.version }}",
+            "tag": "${{ needs.version.outputs.tag }}",
+            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "workflow_run": "${{ github.run_id }}",
+            "artifacts": {
+              "bundle": "homie-os-jetson-${{ needs.version.outputs.version }}.raucb",
+              "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}",
+              "rootfs": "rootfs.ext4"
+            },
+            "target": {
+              "architecture": "arm64",
+              "platform": "jetson-orin-nano",
+              "base_image": "nvcr.io/nvidia/l4t-base:r36.2.0",
+              "jetpack_version": "6.0"
+            }
+          }
+          EOF
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: homie-os-bundle-${{ needs.version.outputs.version }}
+          path: |
+            build/homie-os-jetson-${{ needs.version.outputs.version }}.raucb
+            build/rootfs.ext4
+            build/bundle-metadata.json
+            build/build-report-${{ needs.version.outputs.version }}.json
+          retention-days: 30
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [version, build]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: homie-os-bundle-${{ needs.version.outputs.version }}
+          path: artifacts/
+
+      - name: Create Release Notes
+        run: |
+          cat > release-notes.md << EOF
+          # Homie OS ${{ needs.version.outputs.version }}
+          
+          ## 🚀 Features
+          - Updated to NVIDIA L4T R36.2.0 / JetPack 6.0
+          - ARM64 Docker cross-compilation support
+          - RAUC atomic update system
+          
+          ## 📦 Artifacts
+          - **RAUC Bundle**: \`homie-os-jetson-${{ needs.version.outputs.version }}.raucb\`
+          - **Root Filesystem**: \`rootfs.ext4\`
+          - **Docker Image**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}\`
+          
+          ## 🎯 Target Platform
+          - **Architecture**: ARM64
+          - **Device**: NVIDIA Jetson Orin Nano
+          - **Base**: L4T R36.2.0
+          - **JetPack**: 6.0
+          
+          ## 📋 Installation
+          \`\`\`bash
+          # Download and flash bundle
+          rauc install homie-os-jetson-${{ needs.version.outputs.version }}.raucb
+          \`\`\`
+          
+          ## 🔍 Verification
+          \`\`\`bash
+          # Verify bundle signature
+          rauc info homie-os-jetson-${{ needs.version.outputs.version }}.raucb
+          \`\`\`
+          
+          ---
+          **Build Information**:
+          - Commit: ${{ github.sha }}
+          - Workflow: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - Built: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: "Homie OS ${{ needs.version.outputs.version }}"
+          body_path: release-notes.md
+          files: |
+            artifacts/homie-os-jetson-${{ needs.version.outputs.version }}.raucb
+            artifacts/bundle-metadata.json
+            artifacts/build-report-${{ needs.version.outputs.version }}.json
+          prerelease: ${{ contains(needs.version.outputs.version, 'alpha') || contains(needs.version.outputs.version, 'beta') || contains(needs.version.outputs.version, 'rc') }}
+          generate_release_notes: false
+
+  notify:
+    name: Notify Build Status
+    runs-on: ubuntu-latest
+    needs: [version, build, release]
+    if: always()
+    steps:
+      - name: Build Success Notification
+        if: needs.build.result == 'success' && needs.release.result == 'success'
+        run: |
+          echo "✅ Successfully built and released Homie OS ${{ needs.version.outputs.version }}"
+          echo "🚀 Bundle: homie-os-jetson-${{ needs.version.outputs.version }}.raucb"
+          echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}"
+
+      - name: Build Failure Notification
+        if: needs.build.result == 'failure' || needs.release.result == 'failure'
+        run: |
+          echo "❌ Build or release failed for Homie OS ${{ needs.version.outputs.version }}"
+          exit 1
