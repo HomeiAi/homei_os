@@ -359,11 +359,16 @@ create_rauc_bundle() {
 
     print_info "Creating RAUC bundle..."
 
-    # Ensure bundle directory exists
-    mkdir -p "$BUILD_DIR/bundle"
+    # Ensure we're working with absolute paths and directories exist
+    local abs_build_dir="$(realpath "$BUILD_DIR")"
+    print_info "Absolute BUILD_DIR: $abs_build_dir"
+    
+    # Ensure bundle and certificate directories exist
+    mkdir -p "$abs_build_dir/bundle"
+    mkdir -p "$abs_build_dir/certs"
 
     # Create manifest
-    cat > "$BUILD_DIR/bundle/manifest.raucm" << EOF
+    cat > "$abs_build_dir/bundle/manifest.raucm" << EOF
 [update]
 compatible=homie-jetson-orin-nano
 version=$HOMIE_VERSION
@@ -374,18 +379,18 @@ format=plain
 
 [image.rootfs]
 filename=rootfs.ext4
-size=$(stat -c%s "$BUILD_DIR/rootfs.ext4")
-sha256=$(sha256sum "$BUILD_DIR/rootfs.ext4" | cut -d' ' -f1)
+size=$(stat -c%s "$abs_build_dir/rootfs.ext4")
+sha256=$(sha256sum "$abs_build_dir/rootfs.ext4" | cut -d' ' -f1)
 
 [hooks]
 filename=hook.sh
 EOF
 
     # Copy rootfs to bundle directory
-    cp "$BUILD_DIR/rootfs.ext4" "$BUILD_DIR/bundle/"
+    cp "$abs_build_dir/rootfs.ext4" "$abs_build_dir/bundle/"
 
     # Create simple hook script
-    cat > "$BUILD_DIR/bundle/hook.sh" << 'EOF'
+    cat > "$abs_build_dir/bundle/hook.sh" << 'EOF'
 #!/bin/bash
 case "$1" in
     slot-post-install)
@@ -393,7 +398,7 @@ case "$1" in
         ;;
 esac
 EOF
-    chmod +x "$BUILD_DIR/bundle/hook.sh"
+    chmod +x "$abs_build_dir/bundle/hook.sh"
 
     # Create the bundle
     local bundle_name="homie-os-jetson-$HOMIE_VERSION.raucb"
@@ -401,27 +406,44 @@ EOF
     # Debug: Show current directory and certificate paths
     print_info "Current working directory: $(pwd)"
     print_info "BUILD_DIR: $BUILD_DIR"
+    print_info "Absolute BUILD_DIR: $abs_build_dir"
     print_info "Checking certificate files..."
-    ls -la "$BUILD_DIR/certs/" || print_error "Certs directory not found"
+    ls -la "$abs_build_dir/certs/" || print_error "Certs directory not found"
+    
+    # Verify certificate files exist - if not, generate them
+    if [[ ! -f "$abs_build_dir/certs/rauc-cert.pem" || ! -f "$abs_build_dir/certs/rauc-key.pem" ]]; then
+        print_warning "Certificate files not found, generating them now..."
+        
+        # Generate certificates
+        if ! openssl req -x509 -newkey rsa:4096 -keyout "$abs_build_dir/certs/rauc-key.pem" \
+            -out "$abs_build_dir/certs/rauc-cert.pem" -days 365 -nodes \
+            -subj "/C=US/ST=CA/L=San Francisco/O=Homie/CN=Homie OS Update"; then
+            print_error "Failed to generate RAUC certificates"
+            exit 1
+        fi
+        
+        print_success "RAUC certificates generated in bundle creation"
+        ls -la "$abs_build_dir/certs/"
+    fi
     
     # Verify certificate files exist
-    if [[ ! -f "$BUILD_DIR/certs/rauc-cert.pem" ]]; then
-        print_error "Certificate file not found: $BUILD_DIR/certs/rauc-cert.pem"
+    if [[ ! -f "$abs_build_dir/certs/rauc-cert.pem" ]]; then
+        print_error "Certificate file not found: $abs_build_dir/certs/rauc-cert.pem"
         exit 1
     fi
     
-    if [[ ! -f "$BUILD_DIR/certs/rauc-key.pem" ]]; then
-        print_error "Key file not found: $BUILD_DIR/certs/rauc-key.pem"
+    if [[ ! -f "$abs_build_dir/certs/rauc-key.pem" ]]; then
+        print_error "Key file not found: $abs_build_dir/certs/rauc-key.pem"
         exit 1
     fi
     
     # Create the bundle with absolute paths
     print_info "Creating RAUC bundle with certificates..."
-    rauc bundle "$BUILD_DIR/bundle" "$BUILD_DIR/$bundle_name" \
-        --cert="$(realpath "$BUILD_DIR/certs/rauc-cert.pem")" \
-        --key="$(realpath "$BUILD_DIR/certs/rauc-key.pem")"
+    rauc bundle "$abs_build_dir/bundle" "$abs_build_dir/$bundle_name" \
+        --cert="$abs_build_dir/certs/rauc-cert.pem" \
+        --key="$abs_build_dir/certs/rauc-key.pem"
 
-    print_success "RAUC bundle created: $BUILD_DIR/$bundle_name"
+    print_success "RAUC bundle created: $abs_build_dir/$bundle_name"
 }
 
 push_image() {
@@ -447,7 +469,8 @@ push_image() {
 generate_build_report() {
     print_info "Generating build report..."
 
-    local report_file="$BUILD_DIR/build-report-$HOMIE_VERSION.json"
+    local abs_build_dir="$(realpath "$BUILD_DIR")"
+    local report_file="$abs_build_dir/build-report-$HOMIE_VERSION.json"
     cat > "$report_file" << EOF
 {
   "version": "$HOMIE_VERSION",
@@ -464,8 +487,8 @@ generate_build_report() {
     "bundle": "homie-os-jetson-$HOMIE_VERSION.raucb"
   },
   "sizes": {
-    "rootfs_mb": $(($(stat -c%s "$BUILD_DIR/rootfs.ext4" 2>/dev/null || echo 0) / 1024 / 1024)),
-    "bundle_mb": $(($(stat -c%s "$BUILD_DIR/homie-os-jetson-$HOMIE_VERSION.raucb" 2>/dev/null || echo 0) / 1024 / 1024))
+    "rootfs_mb": $(($(stat -c%s "$abs_build_dir/rootfs.ext4" 2>/dev/null || echo 0) / 1024 / 1024)),
+    "bundle_mb": $(($(stat -c%s "$abs_build_dir/homie-os-jetson-$HOMIE_VERSION.raucb" 2>/dev/null || echo 0) / 1024 / 1024))
   }
 }
 EOF
@@ -492,10 +515,11 @@ main() {
     print_success "Build process completed successfully!"
     print_info "Artifacts location: $BUILD_DIR"
     
-    # List created artifacts
+    # List created artifacts using absolute path
     echo
     print_info "Created artifacts:"
-    ls -lh "$BUILD_DIR"/*.{ext4,raucb,json} 2>/dev/null || true
+    local abs_build_dir="$(realpath "$BUILD_DIR")"
+    ls -lh "$abs_build_dir"/*.{ext4,raucb,json} 2>/dev/null || true
 }
 
 # Run main function with all arguments
