@@ -1,6 +1,7 @@
 #!/bin/bash
 # Automated RAUC setup script for NVIDIA Jetson Nano
 # Part of Homie OS - Enterprise-grade embedded system
+# Compatible with Ubuntu 20.04 and 22.04
 
 set -e
 
@@ -50,8 +51,12 @@ check_system() {
     fi
     
     # Check Ubuntu version
-    if ! grep -q "20.04" /etc/os-release; then
-        warn "This script is designed for Ubuntu 20.04. Your system may not be compatible."
+    if grep -q "22.04" /etc/os-release; then
+        log "Ubuntu 22.04 detected - using updated configuration"
+    elif grep -q "20.04" /etc/os-release; then
+        log "Ubuntu 20.04 detected - using legacy configuration"
+    else
+        warn "This script is tested on Ubuntu 20.04 and 22.04. Your system may not be compatible."
     fi
     
     # Check available space
@@ -91,12 +96,41 @@ create_backup() {
 install_dependencies() {
     log "Installing system dependencies..."
     
+    # Update package list
     apt update
-    apt install -y build-essential git cmake pkg-config
-    apt install -y libglib2.0-dev libcurl4-openssl-dev libjson-glib-dev
-    apt install -y libssl-dev libdbus-1-dev squashfs-tools
-    apt install -y casync libarchive-dev autotools-dev autoconf libtool
-    apt install -y u-boot-tools parted
+    
+    # Detect Ubuntu version for package selection
+    if grep -q "22.04" /etc/os-release; then
+        log "Installing packages for Ubuntu 22.04..."
+        apt install -y build-essential git cmake pkg-config
+        apt install -y libglib2.0-dev libcurl4-openssl-dev libjson-glib-dev
+        apt install -y libssl-dev libdbus-1-dev squashfs-tools
+        apt install -y libarchive-dev autotools-dev autoconf libtool
+        apt install -y u-boot-tools parted curl wget
+        
+        # Install casync from source for 22.04 (not available in repos)
+        if ! command -v casync >/dev/null 2>&1; then
+            log "Building casync from source for Ubuntu 22.04..."
+            apt install -y meson ninja-build libzstd-dev liblzma-dev libzlib1g-dev
+            apt install -y libacl1-dev libselinux1-dev libfuse3-dev
+            
+            cd /tmp
+            rm -rf casync
+            git clone https://github.com/systemd/casync.git
+            cd casync
+            meson build
+            ninja -C build
+            ninja -C build install
+            ldconfig
+        fi
+    else
+        log "Installing packages for Ubuntu 20.04..."
+        apt install -y build-essential git cmake pkg-config
+        apt install -y libglib2.0-dev libcurl4-openssl-dev libjson-glib-dev
+        apt install -y libssl-dev libdbus-1-dev squashfs-tools
+        apt install -y casync libarchive-dev autotools-dev autoconf libtool
+        apt install -y u-boot-tools parted
+    fi
     
     log "Dependencies installed successfully"
 }
@@ -115,12 +149,22 @@ install_rauc() {
     cd rauc
     git checkout "$RAUC_VERSION"
     
-    # Build RAUC
-    ./autogen.sh
-    ./configure --enable-service
-    make -j$(nproc)
-    make install
-    ldconfig
+    # Build RAUC with updated configuration for newer systems
+    if grep -q "22.04" /etc/os-release; then
+        log "Building RAUC for Ubuntu 22.04..."
+        ./autogen.sh
+        ./configure --enable-service --enable-network --enable-json
+        make -j$(nproc)
+        make install
+        ldconfig
+    else
+        log "Building RAUC for Ubuntu 20.04..."
+        ./autogen.sh
+        ./configure --enable-service
+        make -j$(nproc)
+        make install
+        ldconfig
+    fi
     
     # Verify installation
     if ! command -v rauc >/dev/null 2>&1; then
@@ -143,11 +187,20 @@ configure_uboot() {
     
     # Create fw_env.config if it doesn't exist
     if [[ ! -f /etc/fw_env.config ]]; then
-        cat > /etc/fw_env.config << 'EOF'
-# Configuration file for fw_setenv/fw_getenv
+        # Different configurations for different Ubuntu versions
+        if grep -q "22.04" /etc/os-release; then
+            cat > /etc/fw_env.config << 'EOF'
+# Configuration file for fw_setenv/fw_getenv - Ubuntu 22.04
+# Device name	Offset		Size		Endian	Block Size
+/dev/mmcblk0	0x1FFFF000	0x1000		0	0x200
+EOF
+        else
+            cat > /etc/fw_env.config << 'EOF'
+# Configuration file for fw_setenv/fw_getenv - Ubuntu 20.04
 # Device name	Offset		Size
 /dev/mmcblk0	0x1FFFF000	0x1000
 EOF
+        fi
         log "Created /etc/fw_env.config"
     fi
     
@@ -228,8 +281,31 @@ configure_rauc() {
     # Create RAUC configuration directory
     mkdir -p /etc/rauc
     
-    # Create system configuration
-    cat > /etc/rauc/system.conf << 'EOF'
+    # Create system configuration with version-specific settings
+    if grep -q "22.04" /etc/os-release; then
+        cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano-ubuntu2204
+bootloader=uboot
+max-bundle-download-size=2147483648
+bundle-formats=plain
+statusfile=/data/rauc.status
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+EOF
+    else
+        cat > /etc/rauc/system.conf << 'EOF'
 [system]
 compatible=jetson-nano
 bootloader=uboot
@@ -248,6 +324,7 @@ device=/dev/mmcblk0p2
 type=ext4
 bootname=b
 EOF
+    fi
     
     log "RAUC system configuration created"
 }
@@ -259,15 +336,33 @@ generate_keys() {
     mkdir -p /etc/rauc/certs
     cd /etc/rauc/certs
     
-    # Generate Certificate Authority
-    openssl req -x509 -newkey rsa:4096 -keyout ca-key.pem -out ca-cert.pem -days 7300 -nodes \
-        -subj "/C=US/ST=CA/L=San Francisco/O=Homie OS/CN=Homie OS CA"
+    # Generate Certificate Authority with updated OpenSSL configuration for newer systems
+    if grep -q "22.04" /etc/os-release; then
+        # For Ubuntu 22.04, use updated OpenSSL configuration
+        openssl req -x509 -newkey rsa:4096 -keyout ca-key.pem -out ca-cert.pem -days 7300 -nodes \
+            -subj "/C=US/ST=CA/L=San Francisco/O=Homie OS/CN=Homie OS CA" \
+            -config <(printf "[req]\ndistinguished_name=req\n[v3_ca]\nbasicConstraints=CA:TRUE")
+        
+        # Generate development certificate
+        openssl req -new -newkey rsa:4096 -keyout dev-key.pem -out dev-req.pem -nodes \
+            -subj "/C=US/ST=CA/L=San Francisco/O=Homie OS/CN=Homie OS Dev"
+        
+        openssl x509 -req -in dev-req.pem -CA ca-cert.pem -CAkey ca-key.pem -out dev-cert.pem -days 365 \
+            -extensions v3_req -extfile <(printf "[v3_req]\nkeyUsage=digitalSignature\nextendedKeyUsage=codeSigning")
+    else
+        # For Ubuntu 20.04, use legacy OpenSSL configuration
+        openssl req -x509 -newkey rsa:4096 -keyout ca-key.pem -out ca-cert.pem -days 7300 -nodes \
+            -subj "/C=US/ST=CA/L=San Francisco/O=Homie OS/CN=Homie OS CA"
+        
+        # Generate development certificate
+        openssl req -new -newkey rsa:4096 -keyout dev-key.pem -out dev-req.pem -nodes \
+            -subj "/C=US/ST=CA/L=San Francisco/O=Homie OS/CN=Homie OS Dev"
+        
+        openssl x509 -req -in dev-req.pem -CA ca-cert.pem -CAkey ca-key.pem -out dev-cert.pem -days 365
+    fi
     
-    # Generate development certificate
-    openssl req -new -newkey rsa:4096 -keyout dev-key.pem -out dev-req.pem -nodes \
-        -subj "/C=US/ST=CA/L=San Francisco/O=Homie OS/CN=Homie OS Dev"
-    
-    openssl x509 -req -in dev-req.pem -CA ca-cert.pem -CAkey ca-key.pem -out dev-cert.pem -days 365
+    # Clean up request file
+    rm -f dev-req.pem
     
     # Set up keyring
     cp ca-cert.pem /etc/rauc/keyring.pem
@@ -355,9 +450,31 @@ copy_system() {
 enable_rauc_service() {
     log "Enabling RAUC service..."
     
-    # Create systemd service override if needed
+    # Create systemd service override with version-specific configuration
     mkdir -p /etc/systemd/system/rauc.service.d
-    cat > /etc/systemd/system/rauc.service.d/override.conf << 'EOF'
+    
+    if grep -q "22.04" /etc/os-release; then
+        cat > /etc/systemd/system/rauc.service.d/override.conf << 'EOF'
+[Unit]
+Description=RAUC Update Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=dbus
+BusName=de.pengutronix.rauc
+ExecStart=/usr/local/bin/rauc service
+Environment="RAUC_LOG_LEVEL=info"
+Environment="RAUC_STATUSFILE=/data/rauc.status"
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    else
+        cat > /etc/systemd/system/rauc.service.d/override.conf << 'EOF'
 [Unit]
 Description=RAUC Update Service
 After=network.target
@@ -373,6 +490,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+    fi
     
     # Reload systemd and enable service
     systemctl daemon-reload
