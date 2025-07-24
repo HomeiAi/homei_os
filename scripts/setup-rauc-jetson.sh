@@ -754,22 +754,12 @@ troubleshoot_config() {
     
     # Check configuration file
     if [[ ! -f /etc/rauc/system.conf ]]; then
-        error "RAUC configuration file missing"
-        return 1
-    fi
-    
-    echo "Configuration file contents:"
-    cat /etc/rauc/system.conf
-    echo
-    
-    # Test configuration
-    echo -e "${BLUE}Testing RAUC configuration...${NC}"
-    if rauc --conf=/etc/rauc/system.conf info; then
-        log "✓ Configuration syntax is valid"
-    else
-        error "✗ Configuration syntax error detected"
+        error "RAUC configuration file missing - creating minimal configuration..."
         
-        echo -e "${YELLOW}Creating minimal working configuration...${NC}"
+        # Create RAUC configuration directory
+        mkdir -p /etc/rauc
+        
+        # Create minimal working configuration
         cat > /etc/rauc/system.conf << 'EOF'
 [system]
 compatible=jetson-nano
@@ -788,19 +778,90 @@ device=/dev/mmcblk0p2
 type=ext4
 bootname=b
 EOF
-        log "Minimal configuration created"
+        log "✓ Minimal RAUC configuration created"
+    fi
+    
+    echo "Configuration file contents:"
+    cat /etc/rauc/system.conf
+    echo
+    
+    # Test configuration
+    echo -e "${BLUE}Testing RAUC configuration...${NC}"
+    
+    # First, check if partitions match expected layout
+    if [[ ! -b /dev/mmcblk0p1 ]] || [[ $(lsblk -n -o SIZE /dev/mmcblk0p1 2>/dev/null | tr -d ' ') == "117.9G" ]]; then
+        warn "Detected original JetPack partition layout - A/B partitions not configured"
+        echo "Current partition layout appears to be the original JetPack layout."
+        echo "You need to run the full setup to create A/B partitions:"
+        echo "  sudo ./scripts/setup-rauc-jetson.sh"
+        echo ""
+        echo "WARNING: This will ERASE ALL DATA and repartition the SD card!"
+        return 1
+    fi
+    
+    if rauc --conf=/etc/rauc/system.conf info 2>/dev/null; then
+        log "✓ Configuration syntax is valid"
+    else
+        error "✗ Configuration syntax error detected"
+        
+        echo -e "${YELLOW}Creating emergency minimal configuration...${NC}"
+        cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano
+bootloader=uboot
+statusfile=/tmp/rauc.status
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+EOF
+        log "Emergency configuration created (without keyring verification)"
     fi
     
     # Check keyring
     if [[ ! -f /etc/rauc/keyring.pem ]]; then
-        error "RAUC keyring missing at /etc/rauc/keyring.pem"
+        warn "RAUC keyring missing at /etc/rauc/keyring.pem"
+        echo "Creating temporary keyring for testing..."
+        
+        # Create minimal keyring if missing
+        mkdir -p /etc/rauc/certs
+        cd /etc/rauc/certs
+        
+        # Generate minimal CA certificate
+        if openssl req -x509 -newkey rsa:2048 -keyout ca-key.pem -out ca-cert.pem -days 365 -nodes \
+            -subj "/C=US/O=Homie OS/CN=Homie OS CA" 2>/dev/null; then
+            
+            cp ca-cert.pem /etc/rauc/keyring.pem
+            chmod 644 /etc/rauc/keyring.pem
+            chmod 600 ca-key.pem
+            log "✓ Temporary RAUC keyring created"
+            
+            # Update configuration to include keyring
+            if ! grep -q "keyring" /etc/rauc/system.conf; then
+                sed -i '/\[system\]/a keyring=/etc/rauc/keyring.pem' /etc/rauc/system.conf
+            fi
+        else
+            warn "Failed to create keyring - updating config to work without signature verification"
+            # Remove keyring reference from config
+            sed -i '/keyring/d' /etc/rauc/system.conf
+        fi
     else
         log "✓ RAUC keyring found"
     fi
     
     # Check partitions
     echo -e "${BLUE}Checking partitions...${NC}"
-    lsblk /dev/mmcblk0
+    if command -v lsblk >/dev/null 2>&1; then
+        lsblk /dev/mmcblk0 2>/dev/null || echo "Cannot read partition table"
+    else
+        fdisk -l /dev/mmcblk0 2>/dev/null || echo "Cannot read partition table"
+    fi
     
     # Check U-Boot environment
     echo -e "${BLUE}Checking U-Boot environment...${NC}"
@@ -814,13 +875,217 @@ EOF
     
     # Check RAUC service
     echo -e "${BLUE}Checking RAUC service...${NC}"
-    systemctl status rauc --no-pager
+    if systemctl is-active rauc >/dev/null 2>&1; then
+        systemctl status rauc --no-pager
+    else
+        warn "RAUC service not running - attempting to start..."
+        systemctl restart rauc 2>/dev/null || true
+        sleep 2
+        systemctl status rauc --no-pager --lines=5
+    fi
+    
+    # Final RAUC test
+    echo -e "${BLUE}Final RAUC functionality test...${NC}"
+    
+    # Test configuration syntax first
+    if rauc --conf=/etc/rauc/system.conf info >/dev/null 2>&1; then
+        log "✓ RAUC configuration syntax is valid"
+        
+        # Try to get status (may fail if partitions aren't set up)
+        if rauc status 2>/dev/null; then
+            log "✓ RAUC is working correctly"
+        else
+            warn "RAUC configuration is valid but cannot determine status"
+            echo "This is normal if A/B partitions haven't been set up yet."
+        fi
+    else
+        error "✗ RAUC configuration still has syntax errors"
+        echo -e "${YELLOW}Manual steps to fix:${NC}"
+        echo "1. Check if you have A/B partitions: ls -la /dev/mmcblk0p*"
+        echo "2. If not, run full setup: sudo ./scripts/setup-rauc-jetson.sh"
+        echo "3. Verify RAUC config: cat /etc/rauc/system.conf"
+        echo "4. Check service logs: journalctl -u rauc -n 20"
+        echo "5. Test manually: rauc --conf=/etc/rauc/system.conf info"
+        
+        # Show current configuration for debugging
+        echo -e "${BLUE}Current configuration:${NC}"
+        cat /etc/rauc/system.conf
+    fi
 }
 
 # Parse command line arguments
 if [[ "$1" == "--troubleshoot" ]]; then
     check_root
     troubleshoot_config
+    exit 0
+fi
+
+if [[ "$1" == "--check-setup" ]]; then
+    check_root
+    log "Checking if full RAUC setup is needed..."
+    
+    echo -e "${BLUE}Checking current partition layout...${NC}"
+    lsblk /dev/mmcblk0
+    echo
+    
+    # Check if A/B partitions exist
+    if [[ ! -b /dev/mmcblk0p1 ]] || [[ $(lsblk -n -o SIZE /dev/mmcblk0p1 2>/dev/null | tr -d ' ') == "117.9G" ]]; then
+        echo -e "${RED}❌ Original JetPack partition layout detected${NC}"
+        echo "The system needs to be repartitioned for A/B updates."
+        echo ""
+        echo -e "${YELLOW}To set up A/B partitions:${NC}"
+        echo "  sudo ./scripts/setup-rauc-jetson.sh"
+        echo ""
+        echo -e "${RED}⚠️  WARNING: This will ERASE ALL DATA on the SD card!${NC}"
+        echo "Make sure to backup important data first."
+        exit 1
+    else
+        echo -e "${GREEN}✓ A/B partition layout detected${NC}"
+        
+        # Check RAUC installation
+        if command -v rauc >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ RAUC is installed${NC}"
+        else
+            echo -e "${RED}❌ RAUC is not installed${NC}"
+            echo "Run: sudo ./scripts/setup-rauc-jetson.sh"
+            exit 1
+        fi
+        
+        # Check configuration
+        if [[ -f /etc/rauc/system.conf ]]; then
+            echo -e "${GREEN}✓ RAUC configuration exists${NC}"
+        else
+            echo -e "${RED}❌ RAUC configuration missing${NC}"
+            echo "Run: sudo ./scripts/setup-rauc-jetson.sh --create-config"
+            exit 1
+        fi
+        
+        # Check keyring
+        if [[ -f /etc/rauc/keyring.pem ]]; then
+            echo -e "${GREEN}✓ RAUC keyring exists${NC}"
+        else
+            echo -e "${YELLOW}⚠️  RAUC keyring missing${NC}"
+            echo "Run: sudo ./scripts/setup-rauc-jetson.sh --create-config"
+        fi
+        
+        # Check service
+        if systemctl is-active rauc >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ RAUC service is running${NC}"
+        else
+            echo -e "${YELLOW}⚠️  RAUC service not running${NC}"
+            echo "Try: sudo systemctl start rauc"
+        fi
+        
+        echo
+        echo -e "${GREEN}✓ System appears to be set up for A/B updates${NC}"
+    fi
+    
+    exit 0
+fi
+    check_root
+    log "Creating RAUC configuration..."
+    
+    # Check if A/B partitions exist
+    if [[ ! -b /dev/mmcblk0p1 ]] || [[ $(lsblk -n -o SIZE /dev/mmcblk0p1 2>/dev/null | tr -d ' ') == "117.9G" ]]; then
+        warn "Original JetPack partition layout detected"
+        echo "The current system has the original JetPack partitions, not A/B partitions."
+        echo "RAUC configuration will be created but won't be functional until A/B partitions are set up."
+        echo ""
+        echo "To set up A/B partitions, run: sudo ./scripts/setup-rauc-jetson.sh"
+        echo "WARNING: This will ERASE ALL DATA and repartition the SD card!"
+        echo ""
+        read -p "Continue with configuration creation anyway? (y/n): " -r
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log "Configuration creation cancelled"
+            exit 0
+        fi
+    fi
+    
+    # Create RAUC configuration directory
+    mkdir -p /etc/rauc
+    
+    # Create minimal keyring first
+    if [[ ! -f /etc/rauc/keyring.pem ]]; then
+        log "Creating minimal keyring..."
+        mkdir -p /etc/rauc/certs
+        cd /etc/rauc/certs
+        
+        # Generate minimal CA certificate
+        if openssl req -x509 -newkey rsa:2048 -keyout ca-key.pem -out ca-cert.pem -days 365 -nodes \
+            -subj "/C=US/O=Homie OS/CN=Homie OS CA" 2>/dev/null; then
+            
+            cp ca-cert.pem /etc/rauc/keyring.pem
+            chmod 644 /etc/rauc/keyring.pem
+            chmod 600 ca-key.pem
+            log "✓ RAUC keyring created"
+            KEYRING_CREATED=true
+        else
+            warn "Failed to create keyring - creating config without signature verification"
+            KEYRING_CREATED=false
+        fi
+    else
+        log "✓ RAUC keyring already exists"
+        KEYRING_CREATED=true
+    fi
+    
+    # Create configuration with or without keyring
+    if [[ "$KEYRING_CREATED" == "true" ]]; then
+        cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano
+bootloader=uboot
+statusfile=/tmp/rauc.status
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+EOF
+    else
+        cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano
+bootloader=uboot
+statusfile=/tmp/rauc.status
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p1
+type=ext4
+bootname=a
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p2
+type=ext4
+bootname=b
+EOF
+    fi
+    
+    log "✓ RAUC configuration created at /etc/rauc/system.conf"
+    
+    # Test the configuration
+    if rauc --conf=/etc/rauc/system.conf info >/dev/null 2>&1; then
+        log "✓ Configuration syntax is valid"
+    else
+        warn "Configuration syntax may have issues, but basic structure is created"
+        echo "This is normal if A/B partitions haven't been set up yet."
+    fi
+    
+    # Try to start RAUC service
+    log "Attempting to start RAUC service..."
+    if systemctl enable rauc && systemctl start rauc; then
+        log "✓ RAUC service started successfully"
+    else
+        warn "RAUC service may not start properly without A/B partitions"
+    fi
+    
     exit 0
 fi
 

@@ -36,11 +36,17 @@ Homie OS transforms your NVIDIA Jetson Nano into a production-ready embedded sys
 git clone https://github.com/Homie-Ai-project/homie_os.git
 cd homie_os
 
-# Run automated setup
+# Check if your system needs full setup (recommended first step)
+sudo ./scripts/setup-rauc-jetson.sh --check-setup
+
+# Run automated setup (WARNING: This will repartition your SD card!)
 sudo ./scripts/setup-rauc-jetson.sh
 
 # If you encounter configuration issues, run troubleshooting:
 sudo ./scripts/setup-rauc-jetson.sh --troubleshoot
+
+# If RAUC configuration is missing, create it manually:
+sudo ./scripts/setup-rauc-jetson.sh --create-config
 
 # Create your first update bundle
 ./scripts/create-update-bundle.sh
