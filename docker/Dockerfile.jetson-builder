@@ -19,6 +19,11 @@ ENV CUDA_VERSION=12.2
 ENV TRT_VERSION=10.0
 ENV JETPACK_VERSION=6.0
 
+# Compilation optimization environment variables
+ENV MAKEFLAGS="-j1"
+ENV MAX_JOBS=1
+ENV SETUPTOOLS_USE_DISTUTILS=stdlib
+
 # Update package lists and install base packages
 RUN apt-get update && apt-get install -y \
     # System essentials
@@ -42,9 +47,31 @@ RUN apt-get update && apt-get install -y \
     # Development tools
     git \
     build-essential \
+    gcc \
+    g++ \
     python3 \
     python3-pip \
     python3-venv \
+    python3-dev \
+    python3-setuptools \
+    # Additional build dependencies for ARM64 Python packages
+    libffi-dev \
+    libssl-dev \
+    libprocps-dev \
+    pkg-config \
+    # Dependencies for cryptography and bcrypt
+    libcrypto++-dev \
+    libssl-dev \
+    libc6-dev \
+    # Dependencies for asyncpg (PostgreSQL)
+    libpq-dev \
+    # Dependencies for other packages
+    libjpeg-dev \
+    libpng-dev \
+    libfreetype6-dev \
+    # System packages for Python modules to avoid compilation
+    python3-psutil \
+    python3-cryptography \
     # Filesystem tools for bundle creation
     e2fsprogs \
     rsync \
@@ -63,6 +90,9 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && dpkg-reconfigure -f noninteractive tzdata
+
+# Upgrade pip and install wheel for better package compilation
+RUN pip3 install --upgrade pip setuptools wheel
 
 # Install Python packages for Homie OS
 RUN pip3 install --no-cache-dir \
@@ -89,7 +119,52 @@ COPY homie_os/scripts/system/ /opt/homie/scripts/
 
 # Install Homie Orchestrator
 WORKDIR /opt/homie/orchestrator
-RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Install packages in stages to handle compilation issues
+# First, try to install packages that have wheels available
+RUN pip3 install --no-cache-dir --prefer-binary \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 \
+    docker==6.1.3 \
+    pydantic==2.5.0 \
+    pydantic-settings==2.1.0 \
+    aiofiles==23.2.1 \
+    redis==5.0.1 \
+    sqlalchemy[asyncio]==2.0.23 \
+    alembic==1.13.1 \
+    python-multipart==0.0.6 \
+    jinja2==3.1.2 \
+    prometheus-client==0.19.0 \
+    structlog==23.2.0 \
+    croniter==2.0.1 \
+    apscheduler==3.10.4 \
+    httpx==0.25.2 \
+    websockets==12.0 \
+    python-dateutil==2.8.2 \
+    watchdog==3.0.0 \
+    pyyaml==6.0.1 \
+    click==8.1.7 \
+    rich==13.7.0 \
+    typer==0.9.0
+
+# Install problematic packages separately with special handling
+# Try asyncpg first (PostgreSQL adapter)
+RUN pip3 install --no-cache-dir --prefer-binary asyncpg==0.29.0 || \
+    pip3 install --no-cache-dir --no-build-isolation asyncpg==0.29.0
+
+# Install cryptography-dependent packages
+RUN pip3 install --no-cache-dir --prefer-binary "python-jose[cryptography]==3.3.0" || \
+    pip3 install --no-cache-dir --no-build-isolation "python-jose[cryptography]==3.3.0"
+
+RUN pip3 install --no-cache-dir --prefer-binary "passlib[bcrypt]==1.7.4" || \
+    pip3 install --no-cache-dir --no-build-isolation "passlib[bcrypt]==1.7.4"
+
+# Install psutil using system package first, then try pip if needed
+# This avoids the GCC compilation issues entirely
+RUN python3 -c "import psutil; print('System psutil works')" || \
+    (pip3 install --no-cache-dir --prefer-binary psutil==5.9.6 || \
+     pip3 install --no-cache-dir --no-build-isolation psutil==5.9.6 || \
+     pip3 install --no-cache-dir psutil)
 
 # Set up Homie Orchestrator service
 COPY homie_os/config/systemd/homie-orchestrator.service /etc/systemd/system/
