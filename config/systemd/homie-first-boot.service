@@ -1,0 +1,17 @@
+[Unit]
+Description=Homie OS First Boot Setup
+Documentation=https://github.com/HomieAiOS/homie_os
+After=network.target docker.service multi-user.target
+Wants=network.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/homie/scripts/post-install.sh
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=homie-first-boot
+
+[Install]
+WantedBy=multi-user.target

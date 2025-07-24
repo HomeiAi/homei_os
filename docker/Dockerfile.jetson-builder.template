@@ -1,5 +1,5 @@
-# Use NVIDIA L4T base image for Jetson compatibility (Jetson Linux r36.2.0 / JetPack 6.0)
-FROM nvcr.io/nvidia/l4t-base:r36.2.0
+# Use NVIDIA L4T base image for Jetson compatibility (Jetson Linux {{L4T_VERSION}} / JetPack {{JETPACK_VERSION}})
+FROM {{L4T_BASE_IMAGE}}
 
 # Set build arguments
 ARG VERSION=unknown
@@ -13,11 +13,11 @@ LABEL description="Homie OS for NVIDIA Jetson Orin Nano"
 LABEL build-date="${BUILD_DATE}"
 
 # Environment variables
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND={{DEBIAN_FRONTEND}}
 ENV HOMIE_VERSION=${VERSION}
-ENV CUDA_VERSION=12.2
-ENV TRT_VERSION=10.0
-ENV JETPACK_VERSION=6.0
+ENV CUDA_VERSION={{CUDA_VERSION}}
+ENV TRT_VERSION={{TENSORRT_VERSION}}
+ENV JETPACK_VERSION={{JETPACK_VERSION}}
 
 # Update package lists and install base packages
 RUN apt-get update && apt-get install -y \
@@ -128,9 +128,9 @@ RUN systemctl disable systemd-networkd
 # Set version information
 RUN echo "${VERSION}" > /etc/homie-version
 RUN echo "build_date=${BUILD_DATE}" >> /etc/homie-build-info
-RUN echo "base_image=nvcr.io/nvidia/l4t-base:r36.2.0" >> /etc/homie-build-info
-RUN echo "jetpack_version=6.0" >> /etc/homie-build-info
-RUN echo "jetson_linux=r36.2.0" >> /etc/homie-build-info
+RUN echo "base_image={{L4T_BASE_IMAGE}}" >> /etc/homie-build-info
+RUN echo "jetpack_version={{JETPACK_VERSION}}" >> /etc/homie-build-info
+RUN echo "jetson_linux={{L4T_VERSION}}" >> /etc/homie-build-info
 
 # Clean up
 RUN apt-get clean && \

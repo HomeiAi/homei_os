@@ -91,10 +91,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install RAUC
+      - name: Install RAUC and filesystem tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y rauc
+          sudo apt-get install -y rauc e2fsprogs rsync
 
       - name: Create build certificates (for testing)
         run: |

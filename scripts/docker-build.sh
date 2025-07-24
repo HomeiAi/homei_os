@@ -11,14 +11,19 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DOCKER_DIR="$PROJECT_ROOT/docker"
 BUILD_DIR="$PROJECT_ROOT/build"
 
-# Default values
+# Load configuration variables
+source "$SCRIPT_DIR/load-config.sh" load 2>/dev/null || {
+    echo "WARNING: Could not load configuration, using defaults"
+}
+
+# Default values with config file fallback
 VERSION_FILE="$PROJECT_ROOT/VERSION"
 if [[ -f "$VERSION_FILE" ]]; then
     DEFAULT_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "$(date +%Y%m%d_%H%M%S)")
 else
     DEFAULT_VERSION="$(date +%Y%m%d_%H%M%S)"
 fi
-HOMIE_VERSION="${HOMIE_VERSION:-$DEFAULT_VERSION}"
+HOMIE_VERSION="${HOMIE_VERSION:-${VERSION:-$DEFAULT_VERSION}}"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 HOMIE_BRANCH="${HOMIE_BRANCH:-main}"
 PUSH_IMAGE="${PUSH_IMAGE:-false}"
@@ -161,6 +166,12 @@ setup_build_environment() {
 
     # Create build directories
     mkdir -p "$BUILD_DIR"/{certs,rootfs,bundle,logs}
+
+    # Generate Dockerfile from template with current configuration
+    if [[ -f "$SCRIPT_DIR/generate-dockerfile.sh" ]]; then
+        print_info "Generating Dockerfile from template..."
+        "$SCRIPT_DIR/generate-dockerfile.sh"
+    fi
 
     # Generate RAUC certificates if they don't exist
     if [[ ! -f "$BUILD_DIR/certs/rauc-key.pem" || ! -f "$BUILD_DIR/certs/rauc-cert.pem" ]]; then

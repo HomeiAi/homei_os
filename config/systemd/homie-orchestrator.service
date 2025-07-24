@@ -1,0 +1,44 @@
+[Unit]
+Description=Homie Orchestrator - AI Stack Management Service
+Documentation=https://github.com/HomieAiOS/homie_orchestrator
+After=network.target docker.service
+Wants=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=homie
+Group=homie
+WorkingDirectory=/opt/homie/orchestrator
+Environment=PYTHONPATH=/opt/homie/orchestrator/src
+Environment=HOMIE_CONFIG_PATH=/opt/homie/config
+Environment=HOMIE_DATA_PATH=/data
+Environment=HOMIE_AI_STACK_PATH=/opt/homie/ai-stack
+
+# Start the orchestrator
+ExecStart=/usr/bin/python3 -m orchestrator.main
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart configuration
+Restart=always
+RestartSec=10
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# Security settings
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/homie /data /var/log
+
+# Resource limits
+MemoryLimit=512M
+CPUQuota=50%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=homie-orchestrator
+
+[Install]
+WantedBy=multi-user.target
