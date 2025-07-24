@@ -146,6 +146,16 @@ check_prerequisites() {
         exit 1
     fi
 
+    # Set up buildx builder for multi-platform builds
+    print_info "Setting up Docker Buildx for multi-platform builds..."
+    if ! docker buildx inspect multiarch &> /dev/null; then
+        print_info "Creating multiarch builder..."
+        docker buildx create --name multiarch --driver docker-container --platform linux/arm64,linux/amd64 --use
+    else
+        print_info "Using existing multiarch builder..."
+        docker buildx use multiarch
+    fi
+
     # Check Docker Compose
     if ! docker compose version &> /dev/null; then
         print_error "Docker Compose is not available"

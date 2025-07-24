@@ -3,12 +3,14 @@
 
 ## 🎯 Overview
 
-This guide provides the exact implementation for creating RAUC bundles using Docker cross-compilation. This approach solves the architecture mismatch between development machines (x86_64) and target hardware (ARM64 Jetson Orin Nano) while maintaining clean, reproducible builds.
+This guide provides the complete implementation for creating RAUC bundles with full AI stack integration using Docker cross-compilation. This approach builds the entire Homie ecosystem (OS + Orchestrator + AI Stack) while solving the architecture mismatch between development machines (x86_64) and target hardware (ARM64 Jetson).
 
 ## 🚀 Benefits of Docker-Based Building
 
+- ✅ **Complete AI Platform**: Includes Ollama, Open WebUI, and CatGPT
 - ✅ **Correct Architecture**: Native ARM64 binaries for Jetson hardware
 - ✅ **Hardware Drivers**: Includes NVIDIA CUDA, TensorRT, and JetPack components
+- ✅ **Auto-Deployment**: AI stack deploys automatically on first boot
 - ✅ **Reproducible Builds**: Same environment every time
 - ✅ **CI/CD Compatible**: Works in GitHub Actions and other automation
 - ✅ **Clean Environment**: No development artifacts or temporary files
@@ -71,8 +73,8 @@ homie_os/
 Create `docker/Dockerfile.jetson-builder`:
 
 ```dockerfile
-# Use NVIDIA L4T base image for Jetson compatibility (Jetson Linux R36.2.0 / JetPack 6.0)
-FROM nvcr.io/nvidia/l4t-base:r36.2.0
+# Use NVIDIA L4T base image for Jetson compatibility (Jetson Linux {{L4T_VERSION}} / JetPack {{JETPACK_VERSION}})
+FROM {{L4T_BASE_IMAGE}}
 
 # Set build arguments
 ARG VERSION=unknown
@@ -82,14 +84,15 @@ ARG HOMIE_BRANCH=main
 # Labels for metadata
 LABEL maintainer="Homie OS Team"
 LABEL version="${VERSION}"
-LABEL description="Homie OS for NVIDIA Jetson Orin Nano"
+LABEL description="Homie OS for NVIDIA Jetson Orin Nano with Complete AI Stack"
 LABEL build-date="${BUILD_DATE}"
 
 # Environment variables
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND={{DEBIAN_FRONTEND}}
 ENV HOMIE_VERSION=${VERSION}
-ENV CUDA_VERSION=11.4
-ENV TRT_VERSION=8.5.2
+ENV CUDA_VERSION={{CUDA_VERSION}}
+ENV TRT_VERSION={{TENSORRT_VERSION}}
+ENV JETPACK_VERSION={{JETPACK_VERSION}}
 
 # Update package lists and install base packages
 RUN apt-get update && apt-get install -y \
