@@ -49,6 +49,7 @@ Options:
     
     --compression TYPE        Compression type: none, gzip, xz (default: xz)
     --verbose                 Enable verbose output
+    --fix-config              Fix RAUC configuration and exit
     
     -h, --help               Show this help message
 
@@ -130,6 +131,25 @@ parse_args() {
                 VERBOSE=true
                 shift
                 ;;
+            --fix-config)
+                # Check if running as root
+                if [[ $EUID -ne 0 ]]; then
+                    error "This option requires root privileges"
+                    exit 1
+                fi
+                
+                echo -e "${BLUE}Fixing RAUC Configuration${NC}"
+                echo "========================="
+                
+                if fix_rauc_config; then
+                    log "RAUC configuration fixed successfully!"
+                    log "You can now run the bundle creation script normally."
+                else
+                    error "Could not fix RAUC configuration automatically."
+                    echo "Please check the error messages above and fix manually."
+                fi
+                exit 0
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -141,6 +161,80 @@ parse_args() {
                 ;;
         esac
     done
+}
+
+# Fix RAUC configuration
+fix_rauc_config() {
+    log "Attempting to fix RAUC configuration..."
+    
+    # Create RAUC directories if they don't exist
+    mkdir -p /etc/rauc /etc/rauc/certs
+    
+    # Check what's wrong with the current configuration
+    local rauc_error=$(rauc info 2>&1 || true)
+    echo "RAUC error: $rauc_error"
+    
+    # Check if configuration file exists
+    if [[ ! -f /etc/rauc/system.conf ]]; then
+        log "Creating missing RAUC configuration file..."
+        cat > /etc/rauc/system.conf << 'EOF'
+[system]
+compatible=jetson-nano
+bootloader=uboot
+statusfile=/tmp/rauc.status
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/sdd1
+type=ext4
+bootname=a
+
+[slot.rootfs.1]
+device=/dev/sdd2
+type=ext4
+bootname=b
+EOF
+    fi
+    
+    # Check if keyring exists
+    if [[ ! -f /etc/rauc/keyring.pem ]]; then
+        log "Creating missing RAUC keyring..."
+        
+        # Generate minimal CA certificate for development
+        openssl req -x509 -newkey rsa:2048 -keyout /etc/rauc/certs/ca-key.pem -out /etc/rauc/certs/ca-cert.pem -days 365 -nodes \
+            -subj "/C=US/O=Homie OS Dev/CN=Homie OS CA" 2>/dev/null
+        
+        # Copy CA cert as keyring
+        cp /etc/rauc/certs/ca-cert.pem /etc/rauc/keyring.pem
+        chmod 644 /etc/rauc/keyring.pem
+        chmod 600 /etc/rauc/certs/ca-key.pem
+        
+        # Generate development signing certificate
+        openssl req -new -newkey rsa:2048 -keyout /etc/rauc/certs/dev-key.pem -out /etc/rauc/certs/dev-req.pem -nodes \
+            -subj "/C=US/O=Homie OS Dev/CN=Homie OS Dev Cert" 2>/dev/null
+        
+        openssl x509 -req -in /etc/rauc/certs/dev-req.pem -CA /etc/rauc/certs/ca-cert.pem -CAkey /etc/rauc/certs/ca-key.pem \
+            -out /etc/rauc/certs/dev-cert.pem -days 365 2>/dev/null
+        
+        rm -f /etc/rauc/certs/dev-req.pem
+        chmod 600 /etc/rauc/certs/dev-key.pem
+        chmod 644 /etc/rauc/certs/dev-cert.pem
+        
+        log "✓ RAUC certificates created"
+    fi
+    
+    # Test the configuration
+    if rauc info >/dev/null 2>&1; then
+        log "✓ RAUC configuration is now valid"
+        return 0
+    else
+        warn "RAUC configuration still has issues. This may be normal in a development environment."
+        log "Current RAUC info output:"
+        rauc info 2>&1 || true
+        return 1
+    fi
 }
 
 # Check prerequisites
@@ -163,13 +257,26 @@ check_prerequisites() {
         fi
     fi
     
-    # Check RAUC configuration (only if RAUC is installed)
-    if command -v rauc >/dev/null 2>&1 && ! rauc info >/dev/null 2>&1; then
-        if [[ "$DEVELOPMENT" == "true" ]]; then
-            warn "RAUC configuration is invalid. Development mode will proceed anyway."
+    # Check RAUC configuration (only if cd /s installed)
+    if command -v rauc >/dev/null 2>&1; then
+        if ! rauc info >/dev/null 2>&1; then
+            if [[ "$DEVELOPMENT" == "true" ]]; then
+                warn "RAUC configuration is invalid. Development mode will proceed anyway."
+            else
+                error "RAUC configuration is invalid. Attempting to fix..."
+                if fix_rauc_config; then
+                    log "✓ RAUC configuration fixed successfully"
+                else
+                    error "Could not fix RAUC configuration. Use --dev mode or fix manually."
+                    echo "Manual steps:"
+                    echo "1. Check /etc/rauc/system.conf syntax"
+                    echo "2. Ensure /etc/rauc/keyring.pem exists"
+                    echo "3. Verify device paths in configuration"
+                    exit 1
+                fi
+            fi
         else
-            error "RAUC configuration is invalid. Please check /etc/rauc/system.conf or use --dev mode."
-            exit 1
+            log "✓ RAUC configuration is valid"
         fi
     fi
     
