@@ -1,8 +1,8 @@
 services:
   jetson-builder:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.jetson-builder
+      context: ../..
+      dockerfile: homie_os/docker/Dockerfile.jetson-builder
       platforms:
         - linux/arm64
       args:
