@@ -265,7 +265,8 @@ build_image() {
 extract_rootfs() {
     print_info "Extracting rootfs from container..."
 
-    cd "$DOCKER_DIR"
+    # Ensure build directory structure exists
+    mkdir -p "$BUILD_DIR/rootfs"
 
     # Create a container from the image
     local container_id
@@ -279,11 +280,21 @@ extract_rootfs() {
 
     # Create ext4 filesystem image
     print_info "Creating ext4 filesystem..."
-    local rootfs_size="2G"
+    
+    # Calculate required size dynamically
+    local rootfs_size_bytes=$(du -sb "$BUILD_DIR/rootfs" | cut -f1)
+    local rootfs_size_mb=$((rootfs_size_bytes / 1024 / 1024))
+    local filesystem_size_mb=$((rootfs_size_mb + rootfs_size_mb / 5 + 512)) # Add 20% + 512MB overhead
+    
+    print_info "Rootfs size: ${rootfs_size_mb}MB, creating filesystem: ${filesystem_size_mb}MB"
+    
     local rootfs_img="$BUILD_DIR/rootfs.ext4"
 
+    # Remove existing image if it exists
+    rm -f "$rootfs_img"
+
     # Create empty image file
-    dd if=/dev/zero of="$rootfs_img" bs=1M count=2048
+    dd if=/dev/zero of="$rootfs_img" bs=1M count="$filesystem_size_mb"
 
     # Format as ext4
     mkfs.ext4 -F "$rootfs_img"
