@@ -55,8 +55,12 @@ Options:
 Examples:
     $0                                    # Create bundle with auto-generated version
     $0 --version "2.1.0"                  # Create bundle with specific version
-    $0 --dev --no-sign                    # Create development bundle
+    $0 --dev --no-sign                    # Create development bundle (works without RAUC setup)
     $0 --include-docker --output /data    # Include Docker data, output to /data
+
+Development Mode:
+    Use --dev flag when RAUC is not installed or configured on the build system.
+    This mode creates bundle structure that can be converted to RAUC bundle later.
 
 EOF
 }
@@ -151,21 +155,34 @@ check_prerequisites() {
     
     # Check if RAUC is installed
     if ! command -v rauc >/dev/null 2>&1; then
-        error "RAUC is not installed. Please run setup-rauc-jetson.sh first."
-        exit 1
+        if [[ "$DEVELOPMENT" == "true" ]]; then
+            warn "RAUC is not installed. Development mode will create bundle structure without RAUC validation."
+        else
+            error "RAUC is not installed. Please run setup-rauc-jetson.sh first, or use --dev mode."
+            exit 1
+        fi
     fi
     
-    # Check RAUC configuration
-    if ! rauc info >/dev/null 2>&1; then
-        error "RAUC configuration is invalid. Please check /etc/rauc/system.conf"
-        exit 1
+    # Check RAUC configuration (only if RAUC is installed)
+    if command -v rauc >/dev/null 2>&1 && ! rauc info >/dev/null 2>&1; then
+        if [[ "$DEVELOPMENT" == "true" ]]; then
+            warn "RAUC configuration is invalid. Development mode will proceed anyway."
+        else
+            error "RAUC configuration is invalid. Please check /etc/rauc/system.conf or use --dev mode."
+            exit 1
+        fi
     fi
     
     # Check certificates if signing is enabled
     if [[ "$SIGN_BUNDLE" == "true" ]]; then
         if [[ ! -f /etc/rauc/certs/dev-cert.pem || ! -f /etc/rauc/certs/dev-key.pem ]]; then
-            error "RAUC signing certificates not found. Run setup script or use --no-sign"
-            exit 1
+            if [[ "$DEVELOPMENT" == "true" ]]; then
+                warn "RAUC signing certificates not found. Disabling signing for development mode."
+                SIGN_BUNDLE=false
+            else
+                error "RAUC signing certificates not found. Run setup script or use --no-sign"
+                exit 1
+            fi
         fi
     fi
     
@@ -412,6 +429,27 @@ create_bundle() {
     
     log "Creating RAUC bundle: $bundle_name"
     
+    # Check if RAUC is available for bundle creation
+    if ! command -v rauc >/dev/null 2>&1; then
+        warn "RAUC not available - creating bundle archive manually"
+        
+        # Create bundle as tar archive (can be converted to .raucb later)
+        local tar_bundle="${bundle_path%.raucb}.tar.gz"
+        cd "$BUNDLE_DIR"
+        tar -czf "$tar_bundle" .
+        
+        local bundle_size=$(stat -c%s "$tar_bundle")
+        log "Bundle archive created: $(basename "$tar_bundle") ($((bundle_size / 1024 / 1024))MB)"
+        
+        echo
+        echo -e "${YELLOW}Note: Bundle created as tar archive since RAUC is not available.${NC}"
+        echo "To convert to RAUC bundle on target system, run:"
+        echo "  rauc bundle <extracted_bundle_dir> $bundle_name"
+        echo
+        
+        return 0
+    fi
+    
     if [[ "$SIGN_BUNDLE" == "true" ]]; then
         rauc bundle \
             --cert=/etc/rauc/certs/dev-cert.pem \
@@ -430,8 +468,8 @@ create_bundle() {
         local bundle_size=$(stat -c%s "$bundle_path")
         log "Bundle created successfully: $bundle_name ($((bundle_size / 1024 / 1024))MB)"
         
-        # Show bundle info
-        if [[ "$VERBOSE" == "true" ]]; then
+        # Show bundle info (only if RAUC is available)
+        if [[ "$VERBOSE" == "true" ]] && command -v rauc >/dev/null 2>&1; then
             rauc info "$bundle_path"
         fi
         

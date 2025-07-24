@@ -1012,6 +1012,8 @@ if [[ "$1" == "--check-setup" ]]; then
     
     exit 0
 fi
+
+if [[ "$1" == "--create-config" ]]; then
     check_root
     log "Creating RAUC configuration..."
     
