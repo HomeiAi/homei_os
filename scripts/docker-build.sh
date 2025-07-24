@@ -187,9 +187,24 @@ generate_dockerfile_inline() {
 
 setup_build_environment() {
     print_info "Setting up build environment..."
+    
+    # Debug: Show current working directory and BUILD_DIR
+    print_info "Current working directory: $(pwd)"
+    print_info "PROJECT_ROOT: $PROJECT_ROOT"
+    print_info "BUILD_DIR: $BUILD_DIR"
+    
+    # Ensure PROJECT_ROOT exists and we can write to it
+    if [[ ! -d "$PROJECT_ROOT" ]]; then
+        print_error "Project root directory does not exist: $PROJECT_ROOT"
+        exit 1
+    fi
 
     # Create build directories
     mkdir -p "$BUILD_DIR"/{certs,rootfs,bundle,logs}
+    
+    # Ensure certificate directory exists (critical for GitHub Actions)
+    print_info "Ensuring certificate directory exists: $BUILD_DIR/certs"
+    mkdir -p "$BUILD_DIR/certs"
 
     # Generate Dockerfile from template with current configuration
     DOCKERFILE_TEMPLATE="$DOCKER_DIR/Dockerfile.jetson-builder.template"
@@ -210,13 +225,17 @@ setup_build_environment() {
     fi
 
     # Generate RAUC certificates if they don't exist
+    print_info "Checking RAUC certificates..."
+    
+    # Always ensure certs directory exists first
+    mkdir -p "$BUILD_DIR/certs"
+    print_info "Certificate directory: $BUILD_DIR/certs"
+    ls -la "$BUILD_DIR/certs/" || print_info "Certificate directory is empty"
+    
     if [[ ! -f "$BUILD_DIR/certs/rauc-key.pem" || ! -f "$BUILD_DIR/certs/rauc-cert.pem" ]]; then
         print_info "Generating RAUC certificates..."
         
-        # Ensure certs directory exists
-        mkdir -p "$BUILD_DIR/certs"
-        
-        # Generate certificates
+        # Generate certificates with error checking
         if ! openssl req -x509 -newkey rsa:4096 -keyout "$BUILD_DIR/certs/rauc-key.pem" \
             -out "$BUILD_DIR/certs/rauc-cert.pem" -days 365 -nodes \
             -subj "/C=US/ST=CA/L=San Francisco/O=Homie/CN=Homie OS Update"; then
