@@ -180,6 +180,18 @@ jobs:
           ls -la ../.. || echo "NOT FOUND"
           echo "Checking if systemd exists in context:"
           ls -la ../../homie_os/config/systemd/ || echo "NOT FOUND"
+          echo "Checking if scripts exist in context:"
+          ls -la ../../homie_os/scripts/ || echo "NOT FOUND"
+          echo "Checking if orchestrator exists:"
+          ls -la ../../homie_orchestrator/ || echo "NOT FOUND"
+          echo "Checking if ai exists:"
+          ls -la ../../homie_ai/ || echo "NOT FOUND"
+          echo "Current directory before build:"
+          pwd
+          echo "Docker directory listing:"
+          ls -la docker/
+          echo "Docker compose file content:"
+          cat docker/docker-compose.ci.yml
           
           # Create version info
           echo "HOMIE_VERSION=${{ needs.version.outputs.version }}" > .env
