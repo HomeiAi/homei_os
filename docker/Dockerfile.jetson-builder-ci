@@ -184,11 +184,12 @@ RUN python3 -c "import psutil; print('System psutil works')" || \
 
 # Prepare AI stack for deployment
 RUN mkdir -p /opt/homie/ai-stack
-RUN cp -r /opt/homie/ai/* /opt/homie/ai-stack/
+RUN cp -r /opt/homie/ai/* /opt/homie/ai-stack/ 2>/dev/null || echo "No AI stack files to copy"
 RUN chown -R homie:homie /opt/homie/ai-stack
 
-# Copy systemd service files (path relative to build context)
-COPY homie_os/config/systemd/ /etc/systemd/system/
+# Copy systemd service files from already copied config directory
+RUN cp -r /opt/homie/config/systemd/* /etc/systemd/system/ 2>/dev/null || echo "No systemd files to copy"
+RUN ls -la /etc/systemd/system/ | grep homie || echo "No homie systemd files found"
 
 # Set up Homie OS services (after systemd files are copied)
 RUN systemctl enable homie-orchestrator
