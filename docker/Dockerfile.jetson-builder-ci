@@ -128,7 +128,8 @@ RUN mkdir -p /data/{app,system,backups,logs}
 RUN chown -R homie:homie /opt/homie /data
 
 # Copy only essential Homie OS config (required for build)
-COPY homie_os/config/ /opt/homie/config/
+# Context is '..' from docker/, so we're building from homie_os/ directory
+COPY config/ /opt/homie/config/
 
 # Create required directory structure
 # Other components (orchestrator, AI, scripts) will be available via volume mounts

@@ -1,8 +1,8 @@
 services:
   jetson-builder:
     build:
-      context: ../..
-      dockerfile: homie_os/docker/Dockerfile.jetson-builder-ci
+      context: ..
+      dockerfile: docker/Dockerfile.jetson-builder-ci
       platforms:
         - linux/arm64
       args:
@@ -21,14 +21,14 @@ services:
     container_name: homie-jetson-builder
     privileged: true
     volumes:
-      # Mount build output directory (use parent directory's build folder)
+      # Mount build output directory
       - ../build:/build
       # Mount source directories for copying (GitHub Actions structure)
-      # Build context is '../..' so mount from the right locations
+      # Build context is '..' (homie_os/) so mount from workspace root
       - ../../homie_orchestrator:/homie_orchestrator:ro
       - ../../homie_ai:/homie_ai:ro  
-      - ../../homie_os/config:/homie_os/config:ro
-      - ../../homie_os/scripts:/homie_os/scripts:ro
+      - ../config:/config:ro
+      - ../scripts:/scripts:ro
       # Mount Docker socket for container builds
       - /var/run/docker.sock:/var/run/docker.sock
     environment:

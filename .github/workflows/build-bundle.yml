@@ -165,7 +165,24 @@ jobs:
           # Use CI-specific Dockerfile that doesn't require NVIDIA registry
           DOCKERFILE_PATH: homie_os/docker/Dockerfile.jetson-builder-ci
         run: |
+          echo "=== DEBUGGING DIRECTORY STRUCTURE ==="
+          echo "Current working directory: $(pwd)"
+          echo "Contents of current directory:"
+          ls -la
+          echo "Contents of homie_os directory:"
+          ls -la homie_os/
+          echo "Contents of homie_os/config:"
+          ls -la homie_os/config/ || echo "NOT FOUND"
+          echo "Contents of homie_orchestrator:"
+          ls -la homie_orchestrator/ || echo "NOT FOUND"
+          echo "Contents of homie_ai:"
+          ls -la homie_ai/ || echo "NOT FOUND"
+          echo "=== END DEBUGGING ==="
+          
           cd homie_os
+          echo "After cd homie_os - Current working directory: $(pwd)"
+          echo "Contents after cd:"
+          ls -la
           echo "Building Homie OS ARM64 image and creating RAUC bundle..."
           
           # Debug: Show current directory and structure
