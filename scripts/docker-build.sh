@@ -170,15 +170,27 @@ generate_dockerfile_inline() {
     # Inline Dockerfile generation as fallback
     if [[ -f "$DOCKERFILE_TEMPLATE" ]]; then
         print_info "Generating Dockerfile from template using inline method..."
+        
+        # Use base image from configuration, with fallback to NVIDIA default
+        local base_image="${L4T_BASE_IMAGE:-nvcr.io/nvidia/l4t-base:r36.2.0}"
+        
+        # Check if we can access the configured base image
+        if ! docker manifest inspect "$base_image" &>/dev/null; then
+            print_warning "Cannot access $base_image, falling back to Ubuntu ARM64"
+            base_image="ubuntu:22.04"
+            print_info "Updated base image for this build: $base_image"
+        fi
+        
         sed \
             -e "s|{{L4T_VERSION}}|${L4T_VERSION:-r36.2.0}|g" \
-            -e "s|{{L4T_BASE_IMAGE}}|${L4T_BASE_IMAGE:-nvcr.io/nvidia/l4t-base:r36.2.0}|g" \
+            -e "s|{{L4T_BASE_IMAGE}}|${base_image}|g" \
             -e "s|{{JETPACK_VERSION}}|${JETPACK_VERSION:-6.0}|g" \
             -e "s|{{CUDA_VERSION}}|${CUDA_VERSION:-12.2}|g" \
             -e "s|{{TENSORRT_VERSION}}|${TENSORRT_VERSION:-10.0}|g" \
             -e "s|{{DEBIAN_FRONTEND}}|${DEBIAN_FRONTEND:-noninteractive}|g" \
             "$DOCKERFILE_TEMPLATE" > "$DOCKERFILE_OUTPUT"
         print_success "Generated Dockerfile inline: $DOCKERFILE_OUTPUT"
+        print_info "Using base image: $base_image"
     else
         print_error "No Dockerfile template found at $DOCKERFILE_TEMPLATE"
         return 1
@@ -284,8 +296,15 @@ build_image() {
 
     cd "$DOCKER_DIR"
 
+    # Use CI-specific compose file if DOCKERFILE_PATH is set (GitHub Actions)
+    local compose_file="docker-compose.yml"
+    if [[ -n "${DOCKERFILE_PATH:-}" ]]; then
+        compose_file="docker-compose.ci.yml"
+        print_info "Using CI-specific compose file: $compose_file"
+    fi
+
     # Build the image using Docker Compose
-    if ! docker compose build --no-cache jetson-builder; then
+    if ! docker compose -f "$compose_file" build --no-cache jetson-builder; then
         print_error "Failed to build Homie OS image"
         exit 1
     fi
@@ -370,12 +389,12 @@ create_rauc_bundle() {
     # Create manifest
     cat > "$abs_build_dir/bundle/manifest.raucm" << EOF
 [update]
-compatible=homie-jetson-orin-nano
+compatible=${RAUC_COMPATIBLE:-homie-jetson-orin-nano}
 version=$HOMIE_VERSION
-description=Homie OS update bundle for Jetson Orin Nano
+description=Homie OS update bundle for ${TARGET_PLATFORM:-Jetson Orin Nano}
 
 [bundle]
-format=plain
+format=${BUNDLE_FORMAT:-plain}
 
 [image.rootfs]
 filename=rootfs.ext4
@@ -476,11 +495,11 @@ generate_build_report() {
   "version": "$HOMIE_VERSION",
   "build_date": "$BUILD_DATE",
   "branch": "$HOMIE_BRANCH",
-  "target": "jetson-orin-nano",
-  "architecture": "arm64",
-  "base_image": "nvcr.io/nvidia/l4t-base:r36.2.0",
-  "jetpack_version": "6.0",
-  "jetson_linux": "r36.2.0",
+  "target": "${TARGET_PLATFORM:-jetson-orin-nano}",
+  "architecture": "${TARGET_ARCHITECTURE:-arm64}",
+  "base_image": "${L4T_BASE_IMAGE:-nvcr.io/nvidia/l4t-base:r36.2.0}",
+  "jetpack_version": "${JETPACK_VERSION:-6.0}",
+  "jetson_linux": "${L4T_VERSION:-r36.2.0}",
   "artifacts": {
     "image": "homie-os:jetson-$HOMIE_VERSION",
     "rootfs": "rootfs.ext4",
@@ -500,7 +519,8 @@ main() {
     print_info "Starting Homie OS Docker build process..."
     print_info "Version: $HOMIE_VERSION"
     print_info "Branch: $HOMIE_BRANCH"
-    print_info "Target: ARM64/Jetson Orin Nano"
+    print_info "Target: ${TARGET_ARCHITECTURE:-ARM64}/${TARGET_PLATFORM:-Jetson Orin Nano}"
+    print_info "Base Image: ${L4T_BASE_IMAGE:-nvcr.io/nvidia/l4t-base:r36.2.0}"
 
     parse_args "$@"
     check_prerequisites

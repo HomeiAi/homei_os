@@ -1,0 +1,62 @@
+services:
+  jetson-builder:
+    build:
+      context: ../..
+      dockerfile: homie_os/docker/Dockerfile.jetson-builder-ci
+      platforms:
+        - linux/arm64
+      args:
+        VERSION: ${HOMIE_VERSION:-dev}
+        BUILD_DATE: ${BUILD_DATE}
+        HOMIE_BRANCH: ${HOMIE_BRANCH:-main}
+    image: homie-os:jetson-${HOMIE_VERSION:-dev}
+    container_name: homie-jetson-builder
+    privileged: true
+    volumes:
+      # Mount build output directory
+      - ./build:/build
+      # Mount source directories for copying
+      - ../homie_orchestrator:/src/homie_orchestrator:ro
+      - ../config:/src/config:ro
+      - ../scripts:/src/scripts:ro
+      # Mount Docker socket for container builds
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - HOMIE_VERSION=${HOMIE_VERSION:-dev}
+      - BUILD_DATE=${BUILD_DATE}
+      - HOMIE_BRANCH=${HOMIE_BRANCH:-main}
+      - RAUC_KEY_PATH=/build/certs/rauc-key.pem
+      - RAUC_CERT_PATH=/build/certs/rauc-cert.pem
+    networks:
+      - homie-build
+
+  # Extract rootfs from built image
+  rootfs-extractor:
+    image: homie-os:jetson-${HOMIE_VERSION:-dev}
+    container_name: homie-rootfs-extractor
+    command: /bin/bash -c "echo 'Container ready for rootfs extraction'"
+    volumes:
+      - ./build:/build
+    networks:
+      - homie-build
+    depends_on:
+      - jetson-builder
+
+  # Bundle creator service
+  bundle-creator:
+    image: alpine:latest
+    container_name: homie-bundle-creator
+    working_dir: /work
+    volumes:
+      - ./build:/work/build
+    command: |
+      sh -c "
+        apk add --no-cache rauc openssl
+        echo 'Bundle creator ready'
+      "
+    networks:
+      - homie-build
+
+networks:
+  homie-build:
+    driver: bridge

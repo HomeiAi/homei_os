@@ -1,0 +1,220 @@
+# Ubuntu ARM64 base image for CI/CD builds (doesn't require NVIDIA registry access)
+FROM ubuntu:22.04
+
+# Set build arguments
+ARG VERSION=unknown
+ARG BUILD_DATE
+ARG HOMIE_BRANCH=main
+
+# Labels for metadata
+LABEL maintainer="Homie OS Team"
+LABEL version="${VERSION}"
+LABEL description="Homie OS for NVIDIA Jetson Orin Nano (CI Build)"
+LABEL build-date="${BUILD_DATE}"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOMIE_VERSION=${VERSION}
+ENV CUDA_VERSION=12.2
+ENV TRT_VERSION=10.0
+ENV JETPACK_VERSION=6.0
+
+# Compilation optimization environment variables
+ENV MAKEFLAGS="-j1"
+ENV MAX_JOBS=1
+ENV SETUPTOOLS_USE_DISTUTILS=stdlib
+
+# Update package lists and install base packages
+RUN apt-get update && apt-get install -y \
+    # System essentials
+    systemd \
+    systemd-sysv \
+    init \
+    dbus \
+    # Locale and timezone
+    locales \
+    tzdata \
+    # Network and utilities
+    network-manager \
+    openssh-server \
+    curl \
+    wget \
+    vim \
+    nano \
+    htop \
+    tree \
+    jq \
+    # Development tools
+    git \
+    build-essential \
+    gcc \
+    g++ \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    python3-setuptools \
+    # Additional build dependencies for ARM64 Python packages
+    libffi-dev \
+    libssl-dev \
+    libprocps-dev \
+    pkg-config \
+    # Dependencies for cryptography and bcrypt
+    libcrypto++-dev \
+    libssl-dev \
+    libc6-dev \
+    # Dependencies for asyncpg (PostgreSQL)
+    libpq-dev \
+    # Dependencies for other packages
+    libjpeg-dev \
+    libpng-dev \
+    libfreetype6-dev \
+    # System packages for Python modules to avoid compilation
+    python3-psutil \
+    python3-cryptography \
+    # Filesystem tools for bundle creation
+    e2fsprogs \
+    rsync \
+    # Container runtime
+    docker.io \
+    docker-compose \
+    # Security and monitoring
+    fail2ban \
+    logrotate \
+    rsyslog \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure locales and timezone
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && dpkg-reconfigure -f noninteractive tzdata
+
+# Upgrade pip and install wheel for better package compilation
+RUN pip3 install --upgrade pip setuptools wheel
+
+# Install Python packages for Homie OS
+RUN pip3 install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    docker \
+    pyyaml \
+    requests \
+    psutil \
+    prometheus-client \
+    pydantic
+
+# Create system users and directories
+RUN groupadd -r homie && useradd -r -g homie homie
+RUN mkdir -p /opt/homie/{bin,config,data,logs}
+RUN mkdir -p /data/{app,system,backups,logs}
+RUN chown -R homie:homie /opt/homie /data
+
+# Copy Homie OS components
+COPY homie_orchestrator/ /opt/homie/orchestrator/
+COPY homie_ai/ /opt/homie/ai/
+COPY homie_os/config/ /opt/homie/config/
+COPY homie_os/scripts/system/ /opt/homie/scripts/
+
+# Install Homie Orchestrator
+WORKDIR /opt/homie/orchestrator
+
+# Install packages in stages to handle compilation issues
+# First, try to install packages that have wheels available
+RUN pip3 install --no-cache-dir --prefer-binary \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 \
+    docker==6.1.3 \
+    pydantic==2.5.0 \
+    pydantic-settings==2.1.0 \
+    aiofiles==23.2.1 \
+    redis==5.0.1 \
+    sqlalchemy[asyncio]==2.0.23 \
+    alembic==1.13.1 \
+    python-multipart==0.0.6 \
+    jinja2==3.1.2 \
+    prometheus-client==0.19.0 \
+    structlog==23.2.0 \
+    croniter==2.0.1 \
+    apscheduler==3.10.4 \
+    httpx==0.25.2 \
+    websockets==12.0 \
+    python-dateutil==2.8.2 \
+    watchdog==3.0.0 \
+    pyyaml==6.0.1 \
+    click==8.1.7 \
+    rich==13.7.0 \
+    typer==0.9.0
+
+# Install problematic packages separately with special handling
+# Try asyncpg first (PostgreSQL adapter)
+RUN pip3 install --no-cache-dir --prefer-binary asyncpg==0.29.0 || \
+    pip3 install --no-cache-dir --no-build-isolation asyncpg==0.29.0
+
+# Install cryptography-dependent packages
+RUN pip3 install --no-cache-dir --prefer-binary "python-jose[cryptography]==3.3.0" || \
+    pip3 install --no-cache-dir --no-build-isolation "python-jose[cryptography]==3.3.0"
+
+RUN pip3 install --no-cache-dir --prefer-binary "passlib[bcrypt]==1.7.4" || \
+    pip3 install --no-cache-dir --no-build-isolation "passlib[bcrypt]==1.7.4"
+
+# Install psutil using system package first, then try pip if needed
+# This avoids the GCC compilation issues entirely
+RUN python3 -c "import psutil; print('System psutil works')" || \
+    (pip3 install --no-cache-dir --prefer-binary psutil==5.9.6 || \
+     pip3 install --no-cache-dir --no-build-isolation psutil==5.9.6 || \
+     pip3 install --no-cache-dir psutil)
+
+# Set up Homie Orchestrator service
+COPY homie_os/config/systemd/homie-orchestrator.service /etc/systemd/system/
+RUN systemctl enable homie-orchestrator
+
+# Prepare AI stack for deployment
+RUN mkdir -p /opt/homie/ai-stack
+RUN cp -r /opt/homie/ai/* /opt/homie/ai-stack/
+RUN chown -R homie:homie /opt/homie/ai-stack
+
+# Copy systemd service files
+COPY homie_os/config/systemd/ /etc/systemd/system/
+
+# Set up Homie OS services
+RUN systemctl enable homie-orchestrator
+RUN systemctl enable homie-first-boot
+RUN systemctl enable docker
+RUN systemctl enable ssh
+
+# Configure SSH (disable root login, enable key auth)
+RUN mkdir -p /home/homie/.ssh
+RUN echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
+RUN echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+RUN echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+
+# Configure network (use NetworkManager)
+RUN systemctl enable NetworkManager
+RUN systemctl disable systemd-networkd
+
+# Set version information
+RUN echo "${VERSION}" > /etc/homie-version
+RUN echo "build_date=${BUILD_DATE}" >> /etc/homie-build-info
+RUN echo "base_image=ubuntu:22.04" >> /etc/homie-build-info
+RUN echo "jetpack_version=6.0" >> /etc/homie-build-info
+RUN echo "jetson_linux=r36.2.0" >> /etc/homie-build-info
+
+# Clean up
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    find /var/log -type f -exec truncate -s 0 {} \;
+
+# Set proper permissions
+RUN chmod +x /opt/homie/bin/* 2>/dev/null || true
+RUN chmod +x /opt/homie/scripts/* 2>/dev/null || true
+RUN chmod +x /opt/homie/scripts/system/* 2>/dev/null || true
+RUN chmod +x /opt/homie/orchestrator/scripts/* 2>/dev/null || true
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command
+CMD ["/sbin/init"]

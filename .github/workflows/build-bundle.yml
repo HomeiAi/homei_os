@@ -124,6 +124,8 @@ jobs:
           HOMIE_VERSION: ${{ needs.version.outputs.version }}
           BUILD_DATE: ${{ github.event.head_commit.timestamp }}
           COMMIT_SHA: ${{ github.sha }}
+          # Use CI-specific Dockerfile that doesn't require NVIDIA registry
+          DOCKERFILE_PATH: homie_os/docker/Dockerfile.jetson-builder-ci
         run: |
           cd homie_os
           echo "Building Homie OS ARM64 image and creating RAUC bundle..."
