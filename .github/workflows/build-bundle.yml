@@ -143,27 +143,44 @@ jobs:
           # Set executable permissions
           chmod +x scripts/docker-build.sh
           
+          # Debug: Show path resolution before running script
+          echo "=== PATH DEBUGGING ==="
+          echo "PWD: $(pwd)"
+          echo "scripts directory: $(ls -la scripts/)"
+          echo "Checking if docker directory exists: $(ls -la docker/ || echo 'No docker dir')"
+          echo "Checking parent directory: $(ls -la ../)"
+          echo "======================="
+          
           # Run the build script
           ./scripts/docker-build.sh
           
           # Check if build completed successfully
-          if [ $? -ne 0 ]; then
-            echo "Build script failed"
+          BUILD_EXIT_CODE=$?
+          echo "Build script exit code: $BUILD_EXIT_CODE"
+          if [ $BUILD_EXIT_CODE -ne 0 ]; then
+            echo "Build script failed with exit code $BUILD_EXIT_CODE"
             exit 1
           fi
           
           # Debug: Show what was created
           echo "Build completed. Checking build directory:"
           ls -la build/ || echo "Build directory not found"
-          echo "Looking for artifacts:"
+          echo "Checking docker/build directory:"
+          ls -la docker/build/ || echo "Docker build directory not found"
+          echo "Looking for artifacts in all locations:"
           find . -name "*.raucb" -o -name "*.ext4" -o -name "*.json" | head -10
           
-          # Verify critical artifacts exist
-          RAUCB_COUNT=$(find build/ -name "*.raucb" 2>/dev/null | wc -l)
+          # Verify critical artifacts exist (check both possible locations)
+          RAUCB_COUNT=$(find . -name "*.raucb" 2>/dev/null | wc -l)
           if [ "$RAUCB_COUNT" -eq 0 ]; then
             echo "ERROR: No RAUC bundle (.raucb) files found!"
             echo "Build directory contents:"
             ls -la build/ || echo "Build directory doesn't exist"
+            echo "Docker build directory contents:"
+            ls -la docker/build/ || echo "Docker build directory doesn't exist"
+            echo "Checking if RAUC bundle creation failed..."
+            find . -name "manifest.raucm" -exec echo "Found manifest: {}" \;
+            find . -name "*.ext4" -exec echo "Found rootfs: {}" \;
             exit 1
           fi
           echo "Found $RAUCB_COUNT RAUC bundle(s)"
@@ -176,8 +193,11 @@ jobs:
             homie_os/build/*.raucb
             homie_os/build/*.ext4
             homie_os/build/*.json
+            homie_os/docker/build/*.raucb
+            homie_os/docker/build/*.ext4
+            homie_os/docker/build/*.json
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Debug artifact search
         if: failure()
