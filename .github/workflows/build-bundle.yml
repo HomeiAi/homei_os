@@ -263,19 +263,19 @@ jobs:
         run: |
           # Debug: Show what was created
           echo "Build completed. Checking build directory:"
-          ls -la docker/build/ || echo "Docker build directory not found"
-          ls -la build/ || echo "Root build directory not found"
+          ls -la homie_os/docker/build/ || echo "Docker build directory not found"
+          ls -la homie_os/build/ || echo "Root build directory not found"
           echo "Looking for artifacts in all locations:"
           find . -name "*.raucb" -o -name "*.ext4" -o -name "*.json" | head -10
           
           # Verify critical artifacts exist (check both possible build directories)
-          RAUCB_COUNT=$(find docker/build/ build/ -name "*.raucb" 2>/dev/null | wc -l)
+          RAUCB_COUNT=$(find homie_os/docker/build/ homie_os/build/ -name "*.raucb" 2>/dev/null | wc -l)
           if [ "$RAUCB_COUNT" -eq 0 ]; then
             echo "ERROR: No RAUC bundle (.raucb) files found!"
             echo "Docker build directory contents:"
-            ls -la docker/build/ || echo "Docker build directory doesn't exist"
+            ls -la homie_os/docker/build/ || echo "Docker build directory doesn't exist"
             echo "Root build directory contents:"
-            ls -la build/ || echo "Root build directory doesn't exist"
+            ls -la homie_os/build/ || echo "Root build directory doesn't exist"
             echo "Checking if RAUC bundle creation failed..."
             find . -name "manifest.raucm" -exec echo "Found manifest: {}" \;
             find . -name "*.ext4" -exec echo "Found rootfs: {}" \;
@@ -289,14 +289,14 @@ jobs:
           mkdir -p ./artifacts-upload
           
           # Copy artifacts from both possible build directories (flatten structure)
-          find docker/build/ -name "*.raucb" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
-          find docker/build/ -name "*.ext4" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
-          find docker/build/ -name "*.json" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/docker/build/ -name "*.raucb" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/docker/build/ -name "*.ext4" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/docker/build/ -name "*.json" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
           
           # Also check root build directory as fallback
-          find build/ -name "*.raucb" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
-          find build/ -name "*.ext4" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
-          find build/ -name "*.json" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/build/ -name "*.raucb" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/build/ -name "*.ext4" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/build/ -name "*.json" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
           
           echo "Artifacts prepared for upload:"
           ls -la ./artifacts-upload/ || echo "No artifacts found"
