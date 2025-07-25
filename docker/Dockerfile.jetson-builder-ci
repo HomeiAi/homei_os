@@ -182,10 +182,6 @@ RUN python3 -c "import psutil; print('System psutil works')" || \
      pip3 install --no-cache-dir --no-build-isolation psutil==5.9.6 || \
      pip3 install --no-cache-dir psutil)
 
-# Set up Homie Orchestrator service
-# (service file will be copied with other systemd files below)
-RUN systemctl enable homie-orchestrator
-
 # Prepare AI stack for deployment
 RUN mkdir -p /opt/homie/ai-stack
 RUN cp -r /opt/homie/ai/* /opt/homie/ai-stack/
@@ -194,7 +190,7 @@ RUN chown -R homie:homie /opt/homie/ai-stack
 # Copy systemd service files (path relative to build context)
 COPY homie_os/config/systemd/ /etc/systemd/system/
 
-# Set up Homie OS services
+# Set up Homie OS services (after systemd files are copied)
 RUN systemctl enable homie-orchestrator
 RUN systemctl enable homie-first-boot
 RUN systemctl enable docker
