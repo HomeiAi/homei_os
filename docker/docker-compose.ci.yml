@@ -13,12 +13,14 @@ services:
     container_name: homie-jetson-builder
     privileged: true
     volumes:
-      # Mount build output directory
-      - ./build:/build
-      # Mount source directories for copying
-      - ../homie_orchestrator:/src/homie_orchestrator:ro
-      - ../config:/src/config:ro
-      - ../scripts:/src/scripts:ro
+      # Mount build output directory (use parent directory's build folder)
+      - ../build:/build
+      # Mount source directories for copying (GitHub Actions structure)
+      # Build context is '../..' so mount from the right locations
+      - ../../homie_orchestrator:/homie_orchestrator:ro
+      - ../../homie_ai:/homie_ai:ro  
+      - ../../homie_os/config:/homie_os/config:ro
+      - ../../homie_os/scripts:/homie_os/scripts:ro
       # Mount Docker socket for container builds
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -36,7 +38,7 @@ services:
     container_name: homie-rootfs-extractor
     command: /bin/bash -c "echo 'Container ready for rootfs extraction'"
     volumes:
-      - ./build:/build
+      - ../build:/build
     networks:
       - homie-build
     depends_on:
@@ -48,7 +50,7 @@ services:
     container_name: homie-bundle-creator
     working_dir: /work
     volumes:
-      - ./build:/work/build
+      - ../build:/work/build
     command: |
       sh -c "
         apk add --no-cache rauc openssl

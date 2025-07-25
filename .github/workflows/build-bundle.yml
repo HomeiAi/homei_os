@@ -119,6 +119,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.version }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ needs.version.outputs.version }}
+
       - name: Build and create RAUC bundle
         env:
           HOMIE_VERSION: ${{ needs.version.outputs.version }}
@@ -163,23 +176,35 @@ jobs:
             echo "Build script failed with exit code $BUILD_EXIT_CODE"
             exit 1
           fi
-          
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: homie_os
+          file: homie_os/docker/Dockerfile.jetson-builder-ci
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            HOMIE_VERSION=${{ needs.version.outputs.version }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            COMMIT_SHA=${{ github.sha }}
+
+      - name: Verify build artifacts
+        run: |
           # Debug: Show what was created
           echo "Build completed. Checking build directory:"
           ls -la build/ || echo "Build directory not found"
-          echo "Checking docker/build directory:"
-          ls -la docker/build/ || echo "Docker build directory not found"
           echo "Looking for artifacts in all locations:"
           find . -name "*.raucb" -o -name "*.ext4" -o -name "*.json" | head -10
           
-          # Verify critical artifacts exist (check both possible locations)
-          RAUCB_COUNT=$(find . -name "*.raucb" 2>/dev/null | wc -l)
+          # Verify critical artifacts exist (check build directory)
+          RAUCB_COUNT=$(find build/ -name "*.raucb" 2>/dev/null | wc -l)
           if [ "$RAUCB_COUNT" -eq 0 ]; then
             echo "ERROR: No RAUC bundle (.raucb) files found!"
             echo "Build directory contents:"
             ls -la build/ || echo "Build directory doesn't exist"
-            echo "Docker build directory contents:"
-            ls -la docker/build/ || echo "Docker build directory doesn't exist"
             echo "Checking if RAUC bundle creation failed..."
             find . -name "manifest.raucm" -exec echo "Found manifest: {}" \;
             find . -name "*.ext4" -exec echo "Found rootfs: {}" \;
@@ -187,19 +212,28 @@ jobs:
           fi
           echo "Found $RAUCB_COUNT RAUC bundle(s)"
 
+      - name: Prepare artifacts for upload (flatten directory structure)
+        run: |
+          echo "Preparing artifacts with flattened structure..."
+          mkdir -p ./artifacts-upload
+          
+          # Copy artifacts from build directory (flatten structure)
+          find homie_os/build/ -name "*.raucb" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/build/ -name "*.ext4" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          find homie_os/build/ -name "*.json" -exec cp {} ./artifacts-upload/ \; 2>/dev/null || true
+          
+          echo "Artifacts prepared for upload:"
+          ls -la ./artifacts-upload/ || echo "No artifacts found"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: homie-os-${{ needs.version.outputs.version }}
-          path: |
-            homie_os/build/*.raucb
-            homie_os/build/*.ext4
-            homie_os/build/*.json
-            homie_os/docker/build/*.raucb
-            homie_os/docker/build/*.ext4
-            homie_os/docker/build/*.json
+          path: ./artifacts-upload/
           retention-days: 30
           if-no-files-found: warn
+          include-hidden-files: false
+          compression-level: 6
 
       - name: Debug artifact search
         if: failure()
