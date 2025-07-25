@@ -1,23 +1,37 @@
 # Use NVIDIA L4T base image for Jetson compatibility (Jetson Linux r36.2.0 / JetPack 6.0)
 FROM nvcr.io/nvidia/l4t-base:r36.2.0
 
-# Set build arguments
+# Set build arguments (these will be passed from variables.conf)
 ARG VERSION=unknown
 ARG BUILD_DATE
 ARG HOMIE_BRANCH=main
+ARG CUDA_VERSION=12.2
+ARG TENSORRT_VERSION=10.0
+ARG JETPACK_VERSION=6.0
+ARG L4T_VERSION=r36.2.0
+ARG TARGET_ARCHITECTURE=arm64
+ARG CONTAINER_TIMEZONE=UTC
+ARG DEBIAN_FRONTEND=noninteractive
 
 # Labels for metadata
 LABEL maintainer="Homie OS Team"
 LABEL version="${VERSION}"
 LABEL description="Homie OS for NVIDIA Jetson Orin Nano"
 LABEL build-date="${BUILD_DATE}"
+LABEL cuda-version="${CUDA_VERSION}"
+LABEL tensorrt-version="${TENSORRT_VERSION}"
+LABEL jetpack-version="${JETPACK_VERSION}"
+LABEL l4t-version="${L4T_VERSION}"
+LABEL target-architecture="${TARGET_ARCHITECTURE}"
 
-# Environment variables
-ENV DEBIAN_FRONTEND=noninteractive
+# Environment variables (from configuration)
+ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND}
 ENV HOMIE_VERSION=${VERSION}
-ENV CUDA_VERSION=12.2
-ENV TRT_VERSION=10.0
-ENV JETPACK_VERSION=6.0
+ENV CUDA_VERSION=${CUDA_VERSION}
+ENV TRT_VERSION=${TENSORRT_VERSION}
+ENV JETPACK_VERSION=${JETPACK_VERSION}
+ENV L4T_VERSION=${L4T_VERSION}
+ENV TARGET_ARCHITECTURE=${TARGET_ARCHITECTURE}
 
 # Compilation optimization environment variables
 ENV MAKEFLAGS="-j1"

@@ -1,23 +1,39 @@
 # Ubuntu ARM64 base image for CI/CD builds (doesn't require NVIDIA registry access)
-FROM ubuntu:22.04
+# Base image argument must be before FROM
+ARG CI_BASE_IMAGE=ubuntu:22.04
+FROM ${CI_BASE_IMAGE}
 
-# Set build arguments
+# Set build arguments (these will be passed from variables.conf)
 ARG VERSION=unknown
 ARG BUILD_DATE
 ARG HOMIE_BRANCH=main
+ARG CUDA_VERSION=12.2
+ARG TENSORRT_VERSION=10.0
+ARG JETPACK_VERSION=6.0
+ARG L4T_VERSION=r36.2.0
+ARG TARGET_ARCHITECTURE=arm64
+ARG CONTAINER_TIMEZONE=UTC
+ARG DEBIAN_FRONTEND=noninteractive
 
 # Labels for metadata
 LABEL maintainer="Homie OS Team"
 LABEL version="${VERSION}"
 LABEL description="Homie OS for NVIDIA Jetson Orin Nano (CI Build)"
 LABEL build-date="${BUILD_DATE}"
+LABEL cuda-version="${CUDA_VERSION}"
+LABEL tensorrt-version="${TENSORRT_VERSION}"
+LABEL jetpack-version="${JETPACK_VERSION}"
+LABEL l4t-version="${L4T_VERSION}"
+LABEL target-architecture="${TARGET_ARCHITECTURE}"
 
-# Environment variables
-ENV DEBIAN_FRONTEND=noninteractive
+# Environment variables (from configuration)
+ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND}
 ENV HOMIE_VERSION=${VERSION}
-ENV CUDA_VERSION=12.2
-ENV TRT_VERSION=10.0
-ENV JETPACK_VERSION=6.0
+ENV CUDA_VERSION=${CUDA_VERSION}
+ENV TRT_VERSION=${TENSORRT_VERSION}
+ENV JETPACK_VERSION=${JETPACK_VERSION}
+ENV L4T_VERSION=${L4T_VERSION}
+ENV TARGET_ARCHITECTURE=${TARGET_ARCHITECTURE}
 
 # Compilation optimization environment variables
 ENV MAKEFLAGS="-j1"
@@ -84,12 +100,12 @@ RUN apt-get update && apt-get install -y \
     rsyslog \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure locales and timezone
+# Configure locales and timezone (using configuration variables)
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
-RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && dpkg-reconfigure -f noninteractive tzdata
+RUN ln -fs /usr/share/zoneinfo/${CONTAINER_TIMEZONE} /etc/localtime && dpkg-reconfigure -f noninteractive tzdata
 
 # Upgrade pip and install wheel for better package compilation
 RUN pip3 install --upgrade pip setuptools wheel
@@ -111,7 +127,7 @@ RUN mkdir -p /opt/homie/{bin,config,data,logs}
 RUN mkdir -p /data/{app,system,backups,logs}
 RUN chown -R homie:homie /opt/homie /data
 
-# Copy Homie OS components
+# Copy Homie OS components (paths relative to build context: ../..)
 COPY homie_orchestrator/ /opt/homie/orchestrator/
 COPY homie_ai/ /opt/homie/ai/
 COPY homie_os/config/ /opt/homie/config/
@@ -167,7 +183,7 @@ RUN python3 -c "import psutil; print('System psutil works')" || \
      pip3 install --no-cache-dir psutil)
 
 # Set up Homie Orchestrator service
-COPY homie_os/config/systemd/homie-orchestrator.service /etc/systemd/system/
+# (service file will be copied with other systemd files below)
 RUN systemctl enable homie-orchestrator
 
 # Prepare AI stack for deployment
@@ -175,7 +191,7 @@ RUN mkdir -p /opt/homie/ai-stack
 RUN cp -r /opt/homie/ai/* /opt/homie/ai-stack/
 RUN chown -R homie:homie /opt/homie/ai-stack
 
-# Copy systemd service files
+# Copy systemd service files (path relative to build context)
 COPY homie_os/config/systemd/ /etc/systemd/system/
 
 # Set up Homie OS services
@@ -194,12 +210,15 @@ RUN echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
 RUN systemctl enable NetworkManager
 RUN systemctl disable systemd-networkd
 
-# Set version information
+# Set version information (using configuration variables)
 RUN echo "${VERSION}" > /etc/homie-version
 RUN echo "build_date=${BUILD_DATE}" >> /etc/homie-build-info
-RUN echo "base_image=ubuntu:22.04" >> /etc/homie-build-info
-RUN echo "jetpack_version=6.0" >> /etc/homie-build-info
-RUN echo "jetson_linux=r36.2.0" >> /etc/homie-build-info
+RUN echo "base_image=${CI_BASE_IMAGE}" >> /etc/homie-build-info
+RUN echo "jetpack_version=${JETPACK_VERSION}" >> /etc/homie-build-info
+RUN echo "jetson_linux=${L4T_VERSION}" >> /etc/homie-build-info
+RUN echo "cuda_version=${CUDA_VERSION}" >> /etc/homie-build-info
+RUN echo "tensorrt_version=${TENSORRT_VERSION}" >> /etc/homie-build-info
+RUN echo "target_architecture=${TARGET_ARCHITECTURE}" >> /etc/homie-build-info
 
 # Clean up
 RUN apt-get clean && \

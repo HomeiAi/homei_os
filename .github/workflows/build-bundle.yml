@@ -112,6 +112,31 @@ jobs:
           rauc --version
           echo "RAUC installed successfully"
 
+      - name: Load configuration variables
+        id: config
+        run: |
+          cd homie_os
+          echo "Loading configuration from variables.conf..."
+          
+          # Source the configuration file and export variables
+          if [ -f config/variables.conf ]; then
+            # Read variables and export them
+            while IFS='=' read -r key value; do
+              # Skip comments and empty lines
+              if [[ ! "$key" =~ ^[[:space:]]*# ]] && [[ -n "$key" ]] && [[ -n "$value" ]]; then
+                # Remove any quotes and whitespace
+                clean_key=$(echo "$key" | tr -d ' ')
+                clean_value=$(echo "$value" | tr -d '"' | tr -d "'")
+                echo "${clean_key}=${clean_value}" >> $GITHUB_ENV
+                echo "${clean_key}=${clean_value}" >> $GITHUB_OUTPUT
+              fi
+            done < config/variables.conf
+            
+            echo "Configuration variables loaded successfully"
+          else
+            echo "WARNING: variables.conf not found, using defaults"
+          fi
+
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
@@ -190,6 +215,14 @@ jobs:
             HOMIE_VERSION=${{ needs.version.outputs.version }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             COMMIT_SHA=${{ github.sha }}
+            CUDA_VERSION=${{ steps.config.outputs.CUDA_VERSION || '12.2' }}
+            TENSORRT_VERSION=${{ steps.config.outputs.TENSORRT_VERSION || '10.0' }}
+            JETPACK_VERSION=${{ steps.config.outputs.JETPACK_VERSION || '6.0' }}
+            L4T_VERSION=${{ steps.config.outputs.L4T_VERSION || 'r36.2.0' }}
+            TARGET_ARCHITECTURE=${{ steps.config.outputs.TARGET_ARCHITECTURE || 'arm64' }}
+            CONTAINER_TIMEZONE=${{ steps.config.outputs.CONTAINER_TIMEZONE || 'UTC' }}
+            DEBIAN_FRONTEND=${{ steps.config.outputs.DEBIAN_FRONTEND || 'noninteractive' }}
+            CI_BASE_IMAGE=${{ steps.config.outputs.CI_BASE_IMAGE || 'ubuntu:22.04' }}
 
       - name: Verify build artifacts
         run: |

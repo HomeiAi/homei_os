@@ -9,6 +9,13 @@ services:
         VERSION: ${HOMIE_VERSION:-dev}
         BUILD_DATE: ${BUILD_DATE}
         HOMIE_BRANCH: ${HOMIE_BRANCH:-main}
+        CUDA_VERSION: ${CUDA_VERSION:-12.2}
+        TENSORRT_VERSION: ${TENSORRT_VERSION:-10.0}
+        JETPACK_VERSION: ${JETPACK_VERSION:-6.0}
+        L4T_VERSION: ${L4T_VERSION:-r36.2.0}
+        TARGET_ARCHITECTURE: ${TARGET_ARCHITECTURE:-arm64}
+        CONTAINER_TIMEZONE: ${CONTAINER_TIMEZONE:-UTC}
+        DEBIAN_FRONTEND: ${DEBIAN_FRONTEND:-noninteractive}
     image: homie-os:jetson-${HOMIE_VERSION:-dev}
     container_name: homie-jetson-builder
     privileged: true
@@ -25,6 +32,11 @@ services:
       - HOMIE_VERSION=${HOMIE_VERSION:-dev}
       - BUILD_DATE=${BUILD_DATE}
       - HOMIE_BRANCH=${HOMIE_BRANCH:-main}
+      - CUDA_VERSION=${CUDA_VERSION:-12.2}
+      - TENSORRT_VERSION=${TENSORRT_VERSION:-10.0}
+      - JETPACK_VERSION=${JETPACK_VERSION:-6.0}
+      - L4T_VERSION=${L4T_VERSION:-r36.2.0}
+      - TARGET_ARCHITECTURE=${TARGET_ARCHITECTURE:-arm64}
       - RAUC_KEY_PATH=/build/certs/rauc-key.pem
       - RAUC_CERT_PATH=/build/certs/rauc-cert.pem
     networks:
