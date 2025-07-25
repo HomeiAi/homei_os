@@ -131,7 +131,8 @@ RUN chown -R homie:homie /opt/homie /data
 COPY homie_orchestrator/ /opt/homie/orchestrator/
 COPY homie_ai/ /opt/homie/ai/
 COPY homie_os/config/ /opt/homie/config/
-COPY homie_os/scripts/system/ /opt/homie/scripts/
+# Copy entire scripts directory instead of just system subdirectory
+COPY homie_os/scripts/ /opt/homie/scripts/
 
 # Install Homie Orchestrator
 WORKDIR /opt/homie/orchestrator
