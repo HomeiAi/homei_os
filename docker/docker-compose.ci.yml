@@ -21,7 +21,7 @@ services:
     container_name: homie-jetson-builder
     privileged: true
     volumes:
-      # Mount build output directory
+      # Mount build output directory to root level build directory
       - ../build:/build
       # Mount source directories for copying (GitHub Actions structure)
       # Build context is '..' (homie_os/) so mount from workspace root

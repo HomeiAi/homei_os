@@ -14,7 +14,7 @@ The update process in Homie OS follows these key principles:
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Prepare   │───▶│   Create    │───▶│   Deploy    │───▶│   Verify    │
+│   Prepare   │──▶│   Create    │───▶│   Deploy    │──▶│   Verify    │
 │   System    │    │   Bundle    │    │   Update    │    │   Health    │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
 ```
